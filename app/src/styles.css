@@ -995,11 +995,11 @@ a {
     background:
       linear-gradient(
         180deg,
-        rgba(255, 255, 255, 0.06) 0%,
-        rgba(255, 255, 255, 0.02) 40%,
-        rgba(5, 5, 5, 0.32) 100%
+        rgba(255, 255, 255, 0.08) 0%,
+        rgba(255, 255, 255, 0.03) 40%,
+        rgba(5, 5, 5, 0.4) 100%
       ),
-      rgba(12, 12, 14, 0.42);
+      rgba(12, 12, 14, 0.78);
     backdrop-filter: blur(28px) saturate(180%);
     -webkit-backdrop-filter: blur(28px) saturate(180%);
     box-shadow:
