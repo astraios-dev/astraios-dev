@@ -113,19 +113,6 @@ function App() {
   return (
     <div className="site">
       <header className={`site-header${menuOpen ? " site-header--menu-open" : ""}`}>
-        <button
-          type="button"
-          className="nav-toggle"
-          aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"}
-          aria-expanded={menuOpen}
-          aria-controls="primary-navigation"
-          onClick={() => setMenuOpen((v) => !v)}
-        >
-          <span className="nav-toggle__bar" aria-hidden="true" />
-          <span className="nav-toggle__bar" aria-hidden="true" />
-          <span className="nav-toggle__bar" aria-hidden="true" />
-        </button>
-
         <a className="brand-lockup" href="#top" aria-label="Astraios home">
           <LogoMark size="small" />
           <span className="brand-divider" aria-hidden="true" />
@@ -143,6 +130,19 @@ function App() {
             </a>
           ))}
         </nav>
+
+        <button
+          type="button"
+          className="nav-toggle"
+          aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"}
+          aria-expanded={menuOpen}
+          aria-controls="primary-navigation"
+          onClick={() => setMenuOpen((v) => !v)}
+        >
+          <span className="nav-toggle__bar" aria-hidden="true" />
+          <span className="nav-toggle__bar" aria-hidden="true" />
+          <span className="nav-toggle__bar" aria-hidden="true" />
+        </button>
 
         <span className="status-pill" role="status">
           <span className="status-pill__dot" aria-hidden="true" />
