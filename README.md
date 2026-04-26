@@ -1,7 +1,7 @@
 # astraios.tech
 
 Source for the Astraios website and pitch deck, served statically from this
-directory by Caddy.
+directory by nginx at https://astraios.tech (fronted by Cloudflare).
 
 Astraios is a quantitative ML platform: ranked market signals for retail
 traders and a paper-first auto-trading API for developers.
@@ -10,7 +10,7 @@ traders and a paper-first auto-trading API for developers.
 
 ```
 .
-├── index.html                    # Live site entry — built from app/, served by Caddy
+├── index.html                    # Live site entry — built from app/, served by nginx
 ├── assets/                       # Hashed JS/CSS bundles referenced by index.html
 ├── app/                          # React source (the thing you actually edit)
 │   ├── index.html                # Vite entry template
@@ -47,7 +47,7 @@ npm run build
 ```
 
 This runs `vite build` then `node scripts/publish-static.mjs`, which copies
-the fresh bundle from `dist/` into the site root so Caddy serves the latest
+the fresh bundle from `dist/` into the site root so nginx serves the latest
 build directly. Commit the regenerated `index.html` and the new
 `assets/index-*.css` / `.js` files.
 
@@ -102,9 +102,13 @@ column count.
 
 ## Deployment
 
-The site root of this directory is what Caddy serves. After `npm run build`
-the site is live — no additional deploy step. Make sure the following are
-committed before a visible update goes out:
+The site root of this directory is what nginx serves on `astraios.tech`.
+The server config lives at `/etc/nginx/sites-available/static-site.conf`
+with `root /home/ubuntu/astraios-dev`. TLS is terminated at nginx via a
+Let's Encrypt certificate (auto-renewed by certbot's systemd timer);
+Cloudflare fronts the site with SSL mode set to Full (strict). After
+`npm run build` the site is live — no additional deploy step. Make sure
+the following are committed before a visible update goes out:
 
 - `index.html`
 - `assets/index-*.css` and `assets/index-*.js` (the two hashes referenced by
