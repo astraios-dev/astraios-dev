@@ -1,0 +1,1132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Astraios pitch deck — a quantitative ML platform: ranked market signals for traders and a paper-first auto-trading API for developers."
+    />
+    <meta name="theme-color" content="#050505" />
+    <meta property="og:title" content="Astraios — Pitch Deck" />
+    <meta
+      property="og:description"
+      content="Ten slides. Quant ML platform. Paper-first execution."
+    />
+    <meta property="og:type" content="website" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" href="/favicon-32x32.png" sizes="32x32" />
+    <link rel="icon" type="image/png" href="/favicon-48x48.png" sizes="48x48" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <title>Astraios — Pitch Deck</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --ink: #ffffff;
+        --paper: #050505;
+        --soft: #141414;
+        --muted: #9a9a97;
+        --line: #2a2a2a;
+        --line-strong: #f2f2f2;
+        --radius: 6px;
+        --grid: 96px;
+        --step-small: clamp(0.78rem, 0.72rem + 0.15vw, 0.88rem);
+        --step-base: clamp(0.95rem, 0.9rem + 0.2vw, 1.05rem);
+        --step-lead: clamp(1.05rem, 0.98rem + 0.35vw, 1.22rem);
+        --step-h3: clamp(1.2rem, 1.05rem + 0.6vw, 1.45rem);
+        --step-h2: clamp(2rem, 1.4rem + 2.4vw, 3.3rem);
+        --step-h1: clamp(2.6rem, 1.8rem + 4.2vw, 5rem);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+      }
+      * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
+      html, body { min-width: 320px; min-height: 100%; margin: 0; }
+      body {
+        background: var(--paper);
+        color: var(--ink);
+        font-size: var(--step-base);
+      }
+      body, button, input, select, textarea {
+        font: inherit;
+        letter-spacing: 0;
+      }
+      a { color: inherit; }
+      :focus-visible {
+        outline: 2px solid var(--ink);
+        outline-offset: 3px;
+        border-radius: 2px;
+      }
+      .sr-only {
+        position: absolute;
+        width: 1px; height: 1px;
+        padding: 0; margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      /* ---------- Deck shell ---------- */
+
+      .deck {
+        min-height: 100svh;
+        background:
+          linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+          var(--paper);
+        background-size: var(--grid) var(--grid);
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+      }
+
+      .deck-header {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        align-items: center;
+        gap: 2rem;
+        min-height: 72px;
+        padding: 0 2.4rem;
+        border-bottom: 1px solid var(--line);
+        background: rgba(5, 5, 5, 0.9);
+        backdrop-filter: blur(16px);
+      }
+
+      .brand-lockup {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.85rem;
+        text-decoration: none;
+      }
+
+      .brand-divider {
+        display: block;
+        width: 1px;
+        height: 32px;
+        background: var(--ink);
+      }
+
+      .wordmark {
+        display: block;
+        width: 150px;
+        aspect-ratio: 699 / 70;
+        background: currentColor;
+        -webkit-mask: url("/astraios-wordmark-mask.png") center / contain no-repeat;
+        mask: url("/astraios-wordmark-mask.png") center / contain no-repeat;
+      }
+
+      .logo-mark {
+        display: block;
+        color: var(--ink);
+        background: currentColor;
+        -webkit-mask: url("/astraios-logo-mask.png") center / contain no-repeat;
+        mask: url("/astraios-logo-mask.png") center / contain no-repeat;
+      }
+      .logo-mark--tiny { width: 48px; height: 42px; }
+      .logo-mark--small { width: 44px; height: 40px; }
+      .logo-mark--medium { width: 140px; height: 124px; }
+      .logo-mark--large {
+        width: clamp(180px, 22vw, 280px);
+        aspect-ratio: 318 / 282;
+        height: auto;
+      }
+      .logo-mark--inverted { color: var(--paper); }
+
+      .deck-header__title {
+        display: flex;
+        justify-content: center;
+        gap: 0.65rem;
+        color: var(--ink);
+        font-size: var(--step-small);
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.55rem;
+        padding: 0.35rem 0.8rem;
+        border: 1px solid var(--line-strong);
+        border-radius: 999px;
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+
+      .status-pill__dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--ink);
+        animation: pulse 2.4s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 0.3; transform: scale(0.85); }
+        50% { opacity: 1; transform: scale(1.1); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .status-pill__dot { animation: none; }
+      }
+
+      /* ---------- Stage ---------- */
+
+      .stage {
+        position: relative;
+        display: grid;
+        place-items: stretch;
+      }
+
+      .slide {
+        display: none;
+        padding: 3.5rem 3rem 4rem;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .slide[data-active="true"] { display: grid; }
+
+      .slide__label {
+        display: flex;
+        gap: 0.65rem;
+        align-items: center;
+        margin-bottom: 2.2rem;
+        color: var(--ink);
+        font-size: var(--step-small);
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .slide__label::after {
+        content: "";
+        width: 52px;
+        height: 1px;
+        background: var(--ink);
+      }
+
+      .eyebrow {
+        margin: 0 0 1rem;
+        color: var(--muted);
+        font-size: 0.8rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      h1, h2, h3 { margin: 0; }
+
+      .slide h1,
+      .slide h2 {
+        font-family: Georgia, "Times New Roman", serif;
+        font-weight: 500;
+        line-height: 0.98;
+        letter-spacing: -0.01em;
+      }
+
+      .slide h1 { font-size: var(--step-h1); max-width: 14ch; }
+      .slide h2 { font-size: var(--step-h2); max-width: 22ch; }
+
+      .slide p {
+        color: var(--muted);
+        line-height: 1.65;
+        max-width: 58ch;
+      }
+
+      .slide p.lead {
+        margin-top: 1.4rem;
+        font-size: var(--step-lead);
+        color: var(--muted);
+      }
+
+      /* ---------- Slide variants ---------- */
+
+      .slide--cover {
+        grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.1fr);
+        align-items: center;
+        gap: 4rem;
+        min-height: calc(100svh - 200px);
+      }
+
+      .slide--cover .cover__mark {
+        display: grid;
+        place-items: center;
+      }
+
+      .slide--cover .cover__content { max-width: 620px; }
+
+      .cover__meta {
+        grid-column: 1 / -1;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 2rem;
+        margin-top: 3rem;
+        padding-top: 1.5rem;
+        border-top: 1px solid var(--line);
+      }
+      .cover__meta div { display: flex; flex-direction: column; gap: 0.35rem; }
+      .cover__meta dt {
+        color: var(--muted);
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+      .cover__meta dd {
+        margin: 0;
+        font-size: 0.95rem;
+        font-weight: 600;
+      }
+
+      .slide--heading {
+        grid-template-columns: minmax(0, 0.9fr) minmax(280px, 0.55fr);
+        gap: 3rem;
+        align-items: end;
+        width: min(1140px, 100%);
+        margin: 0 auto;
+        min-height: calc(100svh - 200px);
+        align-content: end;
+      }
+
+      .panel-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 1px;
+        width: min(1280px, 100%);
+        margin: 2rem auto 0;
+        background: var(--line);
+        border: 1px solid var(--line);
+      }
+      .panel-grid--two { grid-template-columns: repeat(2, 1fr); }
+      .panel-grid--three { grid-template-columns: repeat(3, 1fr); }
+
+      .panel {
+        position: relative;
+        min-height: 240px;
+        padding: 1.6rem;
+        background: var(--paper);
+        transition: background-color 200ms ease;
+      }
+      .panel:hover { background: var(--soft); }
+
+      .panel__number {
+        display: block;
+        color: var(--muted);
+        font-size: 0.88rem;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+      }
+      .panel h3 {
+        margin-top: 3.2rem;
+        font-family: Georgia, "Times New Roman", serif;
+        font-weight: 500;
+        font-size: var(--step-h3);
+        line-height: 1.15;
+      }
+      .panel p {
+        margin-top: 0.9rem;
+        font-size: 0.95rem;
+      }
+
+      .process-row {
+        list-style: none;
+        margin: 2rem auto 0;
+        padding: 0;
+        width: min(1140px, 100%);
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 1px;
+        background: var(--line);
+        border: 1px solid var(--line);
+      }
+      .process-row li {
+        padding: 1.6rem 1.4rem;
+        background: var(--paper);
+        border-top: 3px solid var(--ink);
+      }
+      .process-row__number {
+        display: block;
+        margin-bottom: 0.9rem;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 1.9rem;
+        font-weight: 500;
+        line-height: 1;
+      }
+      .process-row h3 {
+        font-size: 1rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        margin-bottom: 0.5rem;
+      }
+      .process-row p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.9rem;
+        line-height: 1.55;
+      }
+
+      .stat-row {
+        list-style: none;
+        margin: 2.4rem auto 0;
+        padding: 0;
+        width: min(1140px, 100%);
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 1px;
+        background: var(--line);
+        border: 1px solid var(--line);
+      }
+      .stat-row li {
+        padding: 1.6rem 1.4rem;
+        background: var(--paper);
+      }
+      .stat-row__value {
+        display: block;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(2rem, 1.2rem + 2.4vw, 3rem);
+        line-height: 1;
+        letter-spacing: -0.01em;
+      }
+      .stat-row__label {
+        display: block;
+        margin-top: 0.8rem;
+        color: var(--muted);
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .stat-row__note {
+        display: block;
+        margin-top: 0.5rem;
+        font-size: 0.88rem;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+
+      .dual-split {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        width: min(1200px, 100%);
+        margin: 2rem auto 0;
+        border: 1px solid var(--line);
+      }
+      .dual-split__half {
+        padding: 2rem 1.8rem;
+        border-right: 1px solid var(--line);
+        background: var(--paper);
+      }
+      .dual-split__half:last-child { border-right: 0; }
+      .dual-split__half--dark {
+        background: var(--ink);
+        color: var(--paper);
+      }
+      .dual-split__half--dark .eyebrow,
+      .dual-split__half--dark p,
+      .dual-split__half--dark .check-list li { color: rgba(5, 5, 5, 0.72); }
+      .dual-split__half--dark .check-list li::before { background: var(--paper); }
+      .dual-split__half h3 {
+        margin-top: 0.4rem;
+        font-family: Georgia, "Times New Roman", serif;
+        font-weight: 500;
+        font-size: var(--step-h3);
+      }
+      .dual-split__half p { margin-top: 0.9rem; }
+
+      .check-list {
+        list-style: none;
+        margin: 1rem 0 0;
+        padding: 0;
+      }
+      .check-list li {
+        position: relative;
+        padding-left: 1.4rem;
+        margin-bottom: 0.55rem;
+        color: var(--muted);
+        font-size: 0.95rem;
+        line-height: 1.55;
+      }
+      .check-list li::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0.62em;
+        width: 10px;
+        height: 1px;
+        background: var(--ink);
+      }
+
+      .roadmap {
+        list-style: none;
+        margin: 2rem auto 0;
+        padding: 0;
+        width: min(1140px, 100%);
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 1px;
+        background: var(--line);
+        border: 1px solid var(--line);
+      }
+      .roadmap li {
+        padding: 1.6rem 1.4rem 1.8rem;
+        background: var(--paper);
+      }
+      .roadmap__quarter {
+        display: block;
+        color: var(--muted);
+        font-size: 0.75rem;
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+      .roadmap h3 {
+        margin-top: 0.6rem;
+        font-family: Georgia, "Times New Roman", serif;
+        font-weight: 500;
+        font-size: 1.25rem;
+      }
+      .roadmap p {
+        margin-top: 0.8rem;
+        color: var(--muted);
+        font-size: 0.9rem;
+        line-height: 1.55;
+      }
+
+      .ask {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        width: min(1140px, 100%);
+        margin: 2rem auto 0;
+        border: 1px solid var(--line);
+      }
+      .ask > div {
+        padding: 2rem 1.8rem;
+        border-right: 1px solid var(--line);
+      }
+      .ask > div:last-child { border-right: 0; }
+      .ask__figure {
+        display: block;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(2.2rem, 1.4rem + 2.4vw, 3.2rem);
+        line-height: 1;
+      }
+      .ask__label {
+        display: block;
+        margin-top: 0.7rem;
+        color: var(--muted);
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .ask__note {
+        display: block;
+        margin-top: 0.6rem;
+        color: var(--muted);
+        font-size: 0.9rem;
+        line-height: 1.5;
+      }
+
+      .slide--closing {
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 3rem;
+        align-items: end;
+        min-height: calc(100svh - 200px);
+      }
+      .closing__copy { max-width: 56ch; display: grid; gap: 1rem; }
+      .primary-action {
+        display: inline-flex;
+        min-height: 64px;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        padding: 0 1.8rem;
+        border: 1px solid var(--ink);
+        border-radius: var(--radius);
+        font-weight: 800;
+        text-decoration: none;
+        font-size: 1.05rem;
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+        transition: background-color 160ms ease, color 160ms ease;
+      }
+      .primary-action:hover { background: var(--ink); color: var(--paper); }
+      .primary-action span {
+        display: inline-block;
+        transition: transform 160ms ease;
+      }
+      .primary-action:hover span { transform: translateX(4px); }
+
+      /* ---------- Footer / controls ---------- */
+
+      .deck-footer {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 2rem;
+        align-items: center;
+        padding: 1rem 2.4rem;
+        background: rgba(5, 5, 5, 0.92);
+        color: var(--ink);
+        border-top: 1px solid var(--line);
+        backdrop-filter: blur(16px);
+        position: sticky;
+        bottom: 0;
+        z-index: 10;
+      }
+      .deck-footer__counter {
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 1.1rem;
+        letter-spacing: 0.02em;
+      }
+      .deck-footer__progress {
+        position: relative;
+        height: 2px;
+        background: rgba(255, 255, 255, 0.18);
+        border-radius: 2px;
+        overflow: hidden;
+      }
+      .deck-footer__bar {
+        position: absolute;
+        inset: 0 auto 0 0;
+        background: var(--ink);
+        transform-origin: left;
+        transition: transform 260ms ease;
+      }
+      .deck-controls {
+        display: inline-flex;
+        gap: 0.5rem;
+        align-items: center;
+      }
+      .deck-controls button,
+      .deck-controls a {
+        min-height: 40px;
+        padding: 0 0.9rem;
+        border: 1px solid rgba(255, 255, 255, 0.45);
+        border-radius: var(--radius);
+        background: transparent;
+        color: var(--ink);
+        font-size: 0.82rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease;
+      }
+      .deck-controls button:hover,
+      .deck-controls a:hover {
+        background: var(--ink);
+        color: var(--paper);
+        border-color: var(--ink);
+      }
+      .deck-controls button[disabled] {
+        opacity: 0.4;
+        pointer-events: none;
+      }
+
+      /* ---------- Responsive ---------- */
+
+      @media (max-width: 1080px) {
+        .panel-grid,
+        .process-row,
+        .stat-row,
+        .roadmap { grid-template-columns: repeat(2, 1fr); }
+        .ask { grid-template-columns: 1fr; }
+        .ask > div { border-right: 0; border-bottom: 1px solid var(--line); }
+        .ask > div:last-child { border-bottom: 0; }
+      }
+
+      @media (max-width: 860px) {
+        .deck-header { grid-template-columns: auto 1fr; gap: 1rem; padding: 0.8rem 1.2rem; }
+        .deck-header__title { display: none; }
+        .slide { padding: 2.4rem 1.2rem 3rem; }
+        .slide--cover,
+        .slide--heading,
+        .slide--closing { grid-template-columns: 1fr; gap: 2rem; min-height: auto; align-content: start; }
+        .cover__meta { grid-template-columns: repeat(2, 1fr); }
+        .panel-grid,
+        .panel-grid--two,
+        .panel-grid--three,
+        .process-row,
+        .stat-row,
+        .roadmap,
+        .dual-split { grid-template-columns: 1fr; }
+        .dual-split__half { border-right: 0; border-bottom: 1px solid var(--line); }
+        .dual-split__half:last-child { border-bottom: 0; }
+        .deck-footer { grid-template-columns: 1fr; gap: 0.8rem; padding: 0.9rem 1.2rem; }
+      }
+
+      @media print {
+        @page { size: 1600px 900px; margin: 0; }
+        html, body { background: var(--paper); }
+        .deck { background: var(--paper); min-height: 0; display: block; }
+        .deck-header,
+        .deck-footer { display: none !important; }
+        .stage { display: block; }
+        .slide {
+          display: grid !important;
+          break-inside: avoid;
+          break-after: page;
+          page-break-after: always;
+          width: 1600px;
+          min-height: 900px;
+          max-height: 900px;
+          padding: 2.4rem 3rem;
+          overflow: hidden;
+          align-content: start;
+        }
+        .slide:last-of-type {
+          break-after: auto;
+          page-break-after: auto;
+        }
+        .slide--cover,
+        .slide--heading,
+        .slide--closing { align-content: center; }
+        .slide--closing { display: grid !important; }
+        .slide--cover,
+        .slide--heading,
+        .slide--closing { min-height: 900px; max-height: 900px; }
+
+        /* Force multi-column layouts in print — override the screen breakpoints */
+        .panel-grid,
+        .process-row,
+        .stat-row,
+        .roadmap { grid-template-columns: repeat(4, 1fr) !important; }
+        .panel-grid--three { grid-template-columns: repeat(3, 1fr) !important; }
+        .panel-grid--two { grid-template-columns: repeat(2, 1fr) !important; }
+        .ask { grid-template-columns: repeat(3, 1fr) !important; }
+        .ask > div { border-right: 1px solid var(--line) !important; border-bottom: 0 !important; }
+        .ask > div:last-child { border-right: 0 !important; }
+        .dual-split { grid-template-columns: 1fr 1fr !important; }
+        .dual-split__half { border-right: 1px solid var(--line) !important; border-bottom: 0 !important; }
+        .dual-split__half:last-child { border-right: 0 !important; }
+        .slide--cover { grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.1fr) !important; }
+        .slide--heading { grid-template-columns: minmax(0, 0.9fr) minmax(280px, 0.55fr) !important; }
+        .slide--closing { grid-template-columns: minmax(0, 1fr) auto !important; }
+        .cover__meta { grid-template-columns: repeat(4, 1fr) !important; }
+
+        /* Shrink oversized spacing so content fits a single page */
+        .slide h1 { font-size: clamp(2.6rem, 3.8vw, 4rem); line-height: 1; max-width: 16ch; }
+        .slide h2 { font-size: clamp(1.85rem, 2.6vw, 2.6rem); line-height: 1.02; }
+        .slide p { line-height: 1.55; }
+        .slide p.lead { font-size: 1.05rem; margin-top: 0.9rem; }
+        .slide__label { margin-bottom: 1.1rem; }
+
+        .panel { min-height: 180px; padding: 1.2rem; }
+        .panel h3 { margin-top: 1.6rem; font-size: 1.1rem; }
+        .panel p { margin-top: 0.6rem; font-size: 0.85rem; line-height: 1.5; }
+        .panel__number { font-size: 0.78rem; }
+
+        .process-row { margin-top: 1.2rem; }
+        .process-row li { padding: 1.1rem 1rem; }
+        .process-row__number { font-size: 1.5rem; margin-bottom: 0.5rem; }
+        .process-row h3 { font-size: 0.9rem; }
+        .process-row p { font-size: 0.82rem; line-height: 1.45; }
+
+        .stat-row { margin-top: 1.4rem; }
+        .stat-row li { padding: 1.2rem 1rem; }
+        .stat-row__value { font-size: clamp(1.7rem, 2.2vw, 2.4rem); }
+        .stat-row__note { font-size: 0.82rem; }
+
+        .roadmap { margin-top: 1.2rem; }
+        .roadmap li { padding: 1.2rem 1rem; }
+        .roadmap h3 { font-size: 1.1rem; margin-top: 0.5rem; }
+        .roadmap p { font-size: 0.85rem; margin-top: 0.6rem; }
+
+        .ask { margin-top: 1.4rem; }
+        .ask > div { padding: 1.4rem 1.2rem; }
+        .ask__figure { font-size: clamp(1.8rem, 2.2vw, 2.6rem); }
+
+        .dual-split { margin-top: 1.4rem; }
+        .dual-split__half { padding: 1.6rem 1.4rem; }
+        .dual-split__half h3 { font-size: 1.15rem; }
+        .dual-split__half p { font-size: 0.9rem; margin-top: 0.7rem; }
+
+        .check-list li { font-size: 0.92rem; margin-bottom: 0.45rem; }
+
+        .cover__meta { margin-top: 2rem; padding-top: 1.2rem; }
+        .logo-mark--large { width: clamp(200px, 22vw, 300px); }
+
+        .status-pill__dot { animation: none; }
+        [data-reveal],
+        [data-reveal].is-revealed { opacity: 1; transform: none; transition: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="deck">
+      <header class="deck-header">
+        <a class="brand-lockup" href="/" aria-label="Astraios home">
+          <span class="logo-mark logo-mark--small" role="img" aria-label="Astraios A mark"></span>
+          <span class="brand-divider" aria-hidden="true"></span>
+          <span class="wordmark" role="img" aria-label="Astraios wordmark"></span>
+        </a>
+
+        <div class="deck-header__title" aria-hidden="true">
+          <span>Pitch</span>
+          <span>Series Pre-Seed · MMXXVI</span>
+        </div>
+
+        <span class="status-pill" role="status">
+          <span class="status-pill__dot" aria-hidden="true"></span>
+          <span class="status-pill__text">Private beta — Q2 2026</span>
+        </span>
+      </header>
+
+      <main class="stage" id="stage">
+        <!-- 1 / Cover -->
+        <section class="slide slide--cover" data-active="true" aria-labelledby="s1-title">
+          <div class="cover__mark" aria-hidden="true">
+            <span class="logo-mark logo-mark--large" role="img" aria-label="Astraios A mark"></span>
+          </div>
+          <div class="cover__content">
+            <p class="eyebrow">Astraios Quant Platform</p>
+            <h1 id="s1-title">Markets,<br/>made legible.</h1>
+            <p class="lead">
+              An ML platform for retail and semi-pro traders. Ranked signals
+              with confidence scores, and a paper-first auto-trading API with
+              the same engine behind it.
+            </p>
+          </div>
+          <dl class="cover__meta" aria-label="Deck metadata">
+            <div><dt>Company</dt><dd>Astraios</dd></div>
+            <div><dt>Stage</dt><dd>Pre-seed · Private beta</dd></div>
+            <div><dt>Coverage</dt><dd>US equities · Crypto</dd></div>
+            <div><dt>Since</dt><dd>MMXXVI</dd></div>
+          </dl>
+        </section>
+
+        <!-- 2 / Problem -->
+        <section class="slide slide--heading" aria-labelledby="s2-title">
+          <div>
+            <div class="slide__label"><span>02.</span><span>Problem</span></div>
+            <h2 id="s2-title">Retail traders are drowning in data and starved of signal.</h2>
+          </div>
+          <div>
+            <p class="lead">
+              Brokerages give customers a feed, not an edge. Bloomberg-grade
+              intelligence is priced for institutions. Alpha-generation tools
+              aimed at retail are either black-box auto-traders with no
+              explainability, or indicator soup with no execution path.
+            </p>
+            <ul class="check-list">
+              <li>No single surface ranks trades by confidence and reasoning.</li>
+              <li>No paper-first path from signal to live capital.</li>
+              <li>No API that a developer or small fund can actually build on.</li>
+            </ul>
+          </div>
+        </section>
+
+        <!-- 3 / Solution -->
+        <section class="slide" aria-labelledby="s3-title">
+          <div class="slide__label"><span>03.</span><span>Solution</span></div>
+          <h2 id="s3-title">One engine, two surfaces.</h2>
+          <p class="lead">
+            A shared strategy engine reads market microstructure, macro regime,
+            and filings data. The consumer app renders it as ranked trades
+            with confidence scores and explanations. The API exposes the same
+            signals to developers, routed through Alpaca paper accounts by
+            default.
+          </p>
+          <div class="dual-split">
+            <div class="dual-split__half">
+              <p class="eyebrow">Consumer App</p>
+              <h3>Read the trade before taking it.</h3>
+              <p>
+                Ranked signals, confidence scores, and an explanation of why
+                each call was surfaced — so users build trust in the model,
+                not blind faith.
+              </p>
+            </div>
+            <div class="dual-split__half dual-split__half--dark">
+              <p class="eyebrow">Trading API</p>
+              <h3>Paper-first auto-execution.</h3>
+              <p>
+                REST for strategy state, WebSocket for live signals. Paper
+                accounts by default, live routing opt-in, kill switch per
+                account.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 4 / Architecture -->
+        <section class="slide" aria-labelledby="s4-title">
+          <div class="slide__label"><span>04.</span><span>Architecture</span></div>
+          <h2 id="s4-title">Four layers from raw ticks to routed order.</h2>
+          <div class="panel-grid">
+            <article class="panel">
+              <span class="panel__number">01</span>
+              <h3>Data Layer</h3>
+              <p>Polygon and CCXT for prices, FRED for macro, SEC EDGAR for filings — normalised into TimescaleDB, streamed over Kafka.</p>
+            </article>
+            <article class="panel">
+              <span class="panel__number">02</span>
+              <h3>Model Layer</h3>
+              <p>HMM + LSTM ensembles for regime detection, Temporal Fusion Transformers for multi-horizon forecasts, PPO/SAC for portfolios.</p>
+            </article>
+            <article class="panel">
+              <span class="panel__number">03</span>
+              <h3>Strategy Engine</h3>
+              <p>Signal generation with confidence scores, fractional Kelly position sizing, VectorBT for thousands of sweeps per minute.</p>
+            </article>
+            <article class="panel">
+              <span class="panel__number">04</span>
+              <h3>Execution Layer</h3>
+              <p>Alpaca paper accounts by default. Live routing opt-in, Redis-queued between strategy and orders, end-to-end logged.</p>
+            </article>
+          </div>
+        </section>
+
+        <!-- 5 / Why now -->
+        <section class="slide slide--heading" aria-labelledby="s5-title">
+          <div>
+            <div class="slide__label"><span>05.</span><span>Why Now</span></div>
+            <h2 id="s5-title">Three windows just opened at the same time.</h2>
+          </div>
+          <div>
+            <ul class="check-list">
+              <li><strong>Retail is durable.</strong> Millions of self-directed accounts stayed after the 2020–2024 wave; brokerage tooling has not caught up.</li>
+              <li><strong>Models got cheap.</strong> TFTs, open-weight LLMs, and GPU rental make research-grade inference runnable on a single node.</li>
+              <li><strong>APIs are plumbed.</strong> Alpaca, CCXT, and Polygon mean a pre-seed team can ship a real execution loop in weeks, not quarters.</li>
+            </ul>
+          </div>
+        </section>
+
+        <!-- 6 / Market -->
+        <section class="slide" aria-labelledby="s6-title">
+          <div class="slide__label"><span>06.</span><span>Market</span></div>
+          <h2 id="s6-title">A stack of three audiences, one engine.</h2>
+          <ul class="stat-row">
+            <li>
+              <span class="stat-row__value">~$6B</span>
+              <span class="stat-row__label">Retail Tooling</span>
+              <span class="stat-row__note">Addressable spend on alpha, analytics, and copy-trading across brokerage users.</span>
+            </li>
+            <li>
+              <span class="stat-row__value">~$3B</span>
+              <span class="stat-row__label">Developer API</span>
+              <span class="stat-row__note">Quant-as-a-service, signal APIs, and small-fund infrastructure.</span>
+            </li>
+            <li>
+              <span class="stat-row__value">$20–40B</span>
+              <span class="stat-row__label">Adjacent Fintech</span>
+              <span class="stat-row__note">Risk tooling, portfolio analytics, research platforms we expand into.</span>
+            </li>
+            <li>
+              <span class="stat-row__value">30d</span>
+              <span class="stat-row__label">Paper-First Gate</span>
+              <span class="stat-row__note">Every strategy paper-trades for 30 days before any live account is eligible.</span>
+            </li>
+          </ul>
+          <p class="lead" style="margin-top:2rem">
+            We enter through the first bucket and compound into the second.
+            Retail is a top-of-funnel for developer and fund users — the same
+            engine, priced differently.
+          </p>
+        </section>
+
+        <!-- 7 / Product / Protocol -->
+        <section class="slide" aria-labelledby="s7-title">
+          <div class="slide__label"><span>07.</span><span>Research Protocol</span></div>
+          <h2 id="s7-title">From raw ticks to live capital, in four disciplined moves.</h2>
+          <ol class="process-row">
+            <li>
+              <span class="process-row__number">01</span>
+              <h3>Ingest</h3>
+              <p>One store of truth for prices, macro, and filings. Training, backtests, and inference all read from it.</p>
+            </li>
+            <li>
+              <span class="process-row__number">02</span>
+              <h3>Model</h3>
+              <p>Baseline first. Ensembles and RL only earn their way in once they fairly beat the simpler model.</p>
+            </li>
+            <li>
+              <span class="process-row__number">03</span>
+              <h3>Backtest</h3>
+              <p>Strict time splits, survivorship-adjusted universes, and look-ahead checks before paper trading opens.</p>
+            </li>
+            <li>
+              <span class="process-row__number">04</span>
+              <h3>Deploy</h3>
+              <p>Thirty days paper, ONNX inference path, and a per-account kill switch wired in from day one.</p>
+            </li>
+          </ol>
+        </section>
+
+        <!-- 8 / Business model -->
+        <section class="slide" aria-labelledby="s8-title">
+          <div class="slide__label"><span>08.</span><span>Business Model</span></div>
+          <h2 id="s8-title">Subscription for humans, usage for code.</h2>
+          <div class="panel-grid panel-grid--three">
+            <article class="panel">
+              <span class="panel__number">A</span>
+              <h3>Consumer</h3>
+              <p>Free tier: delayed signals on paper. Paid tier ($19–49/mo) unlocks real-time ranked trades, explanations, and live-trade hand-off.</p>
+            </article>
+            <article class="panel">
+              <span class="panel__number">B</span>
+              <h3>Developer API</h3>
+              <p>Metered per call and per live account. Paper is free; live routing bills per-execution plus a small AUM-linked take.</p>
+            </article>
+            <article class="panel">
+              <span class="panel__number">C</span>
+              <h3>Data Flywheel</h3>
+              <p>Every accept/reject, hold time, and override is a training label. The data we own, not the model we run, becomes the moat.</p>
+            </article>
+          </div>
+        </section>
+
+        <!-- 9 / Moat / Why us -->
+        <section class="slide slide--heading" aria-labelledby="s9-title">
+          <div>
+            <div class="slide__label"><span>09.</span><span>Moat &amp; Team</span></div>
+            <h2 id="s9-title">A two-person team inside the live trading loop.</h2>
+          </div>
+          <div>
+            <p class="lead">
+              One owns the models and feature store; the other owns the
+              consumer surface and the API. The data flywheel compounds from
+              day one — every interaction is a training label we keep.
+            </p>
+            <ul class="check-list">
+              <li><strong>Amyanshu — Systems &amp; Research.</strong> Regime detection, forecasting, and the feature store that keeps training and inference honest.</li>
+              <li><strong>Swetagni — Product &amp; Platform.</strong> Consumer surface and the trading API. Turns model output into interfaces users trust and hand capital to.</li>
+              <li><strong>Distribution.</strong> Developer API reuses the same engine, widening the top of funnel without a second product.</li>
+            </ul>
+          </div>
+        </section>
+
+        <!-- 10 / Roadmap -->
+        <section class="slide" aria-labelledby="s10-title">
+          <div class="slide__label"><span>10.</span><span>Roadmap</span></div>
+          <h2 id="s10-title">Twelve months to a priced Series A.</h2>
+          <ul class="roadmap">
+            <li>
+              <span class="roadmap__quarter">Q2 MMXXVI</span>
+              <h3>Private Beta</h3>
+              <p>Consumer app on paper only. First 500 users. Feature store, baseline models, VectorBT harness live.</p>
+            </li>
+            <li>
+              <span class="roadmap__quarter">Q3 MMXXVI</span>
+              <h3>Live Hand-off</h3>
+              <p>Opt-in live routing to user-owned Alpaca accounts. Kill switch, telemetry, subscription billing.</p>
+            </li>
+            <li>
+              <span class="roadmap__quarter">Q4 MMXXVI</span>
+              <h3>API GA</h3>
+              <p>Public developer API. Paper-first onboarding. First design partners on live metered execution.</p>
+            </li>
+            <li>
+              <span class="roadmap__quarter">Q1 MMXXVII</span>
+              <h3>Series A</h3>
+              <p>Paid cohort, API revenue, 90-day live paper/real parity report. Priced round on real metrics.</p>
+            </li>
+          </ul>
+        </section>
+
+        <!-- 11 / Ask + CTA -->
+        <section class="slide slide--closing" aria-labelledby="s11-title">
+          <div class="closing__copy">
+            <div class="slide__label"><span>11.</span><span>Ask</span></div>
+            <p class="eyebrow">Let&#39;s talk</p>
+            <h2 id="s11-title">Signal worth capital.</h2>
+            <p>
+              We are onboarding a small group of traders and developers onto
+              paper accounts first. If you want a seat — or an API key for
+              the execution layer — start the conversation here.
+            </p>
+
+            <ul class="check-list">
+              <li><strong>$1.5M pre-seed ask.</strong> 18-month runway. SAFE preferred.</li>
+              <li><strong>Use of funds 60 / 30 / 10.</strong> Research &amp; infra · GTM &amp; design partners · Legal and data.</li>
+              <li><strong>Next round Q1 MMXXVII.</strong> Priced Series A against live-trade parity and API revenue.</li>
+            </ul>
+          </div>
+          <a class="primary-action" href="mailto:hello@astraios.tech">
+            Contact Astraios <span aria-hidden="true">→</span>
+          </a>
+        </section>
+      </main>
+
+      <footer class="deck-footer">
+        <span class="deck-footer__counter" aria-live="polite">
+          <span id="deck-current">01</span> / <span id="deck-total">10</span>
+        </span>
+        <div class="deck-footer__progress" aria-hidden="true">
+          <span class="deck-footer__bar" id="deck-bar"></span>
+        </div>
+        <div class="deck-controls">
+          <a href="/deck/astraios-pitch-deck.pdf" download aria-label="Download deck as PDF">PDF</a>
+          <button type="button" id="deck-prev" aria-label="Previous slide">← Prev</button>
+          <button type="button" id="deck-next" aria-label="Next slide">Next →</button>
+        </div>
+      </footer>
+    </div>
+
+    <script>
+      (function () {
+        var slides = Array.prototype.slice.call(document.querySelectorAll(".slide"));
+        var total = slides.length;
+        var current = 0;
+
+        var counter = document.getElementById("deck-current");
+        var totalEl = document.getElementById("deck-total");
+        var bar = document.getElementById("deck-bar");
+        var prev = document.getElementById("deck-prev");
+        var next = document.getElementById("deck-next");
+
+        totalEl.textContent = String(total).padStart(2, "0");
+
+        function show(i) {
+          current = Math.max(0, Math.min(total - 1, i));
+          slides.forEach(function (s, idx) {
+            s.setAttribute("data-active", idx === current ? "true" : "false");
+          });
+          counter.textContent = String(current + 1).padStart(2, "0");
+          bar.style.transform = "scaleX(" + ((current + 1) / total) + ")";
+          prev.disabled = current === 0;
+          next.disabled = current === total - 1;
+          try {
+            history.replaceState(null, "", "#" + (current + 1));
+          } catch (e) {}
+        }
+
+        prev.addEventListener("click", function () { show(current - 1); });
+        next.addEventListener("click", function () { show(current + 1); });
+
+        document.addEventListener("keydown", function (e) {
+          if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+          if (e.key === "ArrowRight" || e.key === "PageDown" || e.key === " ") {
+            e.preventDefault();
+            show(current + 1);
+          } else if (e.key === "ArrowLeft" || e.key === "PageUp") {
+            e.preventDefault();
+            show(current - 1);
+          } else if (e.key === "Home") {
+            e.preventDefault();
+            show(0);
+          } else if (e.key === "End") {
+            e.preventDefault();
+            show(total - 1);
+          }
+        });
+
+        var initial = 0;
+        if (window.location.hash) {
+          var n = parseInt(window.location.hash.replace("#", ""), 10);
+          if (!isNaN(n) && n >= 1 && n <= total) initial = n - 1;
+        }
+        show(initial);
+      })();
+    </script>
+  </body>
+</html>

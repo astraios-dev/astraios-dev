@@ -4,7 +4,7 @@ export default defineConfig({
   root: "app",
   publicDir: "../public",
   build: {
-    outDir: "../dist",
+    outDir: "../site",
     emptyOutDir: true,
     assetsDir: "assets",
   },
