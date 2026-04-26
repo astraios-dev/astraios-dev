@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 const navItems = [
   { label: "Platform", href: "#platform" },
@@ -91,19 +91,54 @@ const processSteps = [
 
 function App() {
   useScrollReveal();
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    const mq = window.matchMedia("(min-width: 981px)");
+    const onWide = (e) => {
+      if (e.matches) setMenuOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    mq.addEventListener("change", onWide);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      mq.removeEventListener("change", onWide);
+    };
+  }, [menuOpen]);
 
   return (
     <div className="site">
-      <header className="site-header">
+      <header className={`site-header${menuOpen ? " site-header--menu-open" : ""}`}>
         <a className="brand-lockup" href="#top" aria-label="Astraios home">
           <LogoMark size="small" />
           <span className="brand-divider" aria-hidden="true" />
           <Wordmark />
         </a>
 
-        <nav aria-label="Primary navigation">
+        <button
+          type="button"
+          className="nav-toggle"
+          aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"}
+          aria-expanded={menuOpen}
+          aria-controls="primary-navigation"
+          onClick={() => setMenuOpen((v) => !v)}
+        >
+          <span className="nav-toggle__bar" aria-hidden="true" />
+          <span className="nav-toggle__bar" aria-hidden="true" />
+          <span className="nav-toggle__bar" aria-hidden="true" />
+        </button>
+
+        <nav
+          id="primary-navigation"
+          aria-label="Primary navigation"
+          data-open={menuOpen ? "true" : "false"}
+        >
           {navItems.map((item) => (
-            <a key={item.label} href={item.href}>
+            <a key={item.label} href={item.href} onClick={() => setMenuOpen(false)}>
               {item.label}
             </a>
           ))}

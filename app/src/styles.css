@@ -95,6 +95,47 @@ a {
   backdrop-filter: blur(16px);
 }
 
+.nav-toggle {
+  display: none;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--ink);
+  cursor: pointer;
+  transition: border-color 160ms ease;
+}
+
+.nav-toggle:hover {
+  border-color: var(--ink);
+}
+
+.nav-toggle__bar {
+  display: block;
+  width: 20px;
+  height: 2px;
+  background: currentColor;
+  transition: transform 200ms ease, opacity 200ms ease;
+}
+
+.site-header--menu-open .nav-toggle__bar:nth-child(1) {
+  transform: translateY(7px) rotate(45deg);
+}
+
+.site-header--menu-open .nav-toggle__bar:nth-child(2) {
+  opacity: 0;
+}
+
+.site-header--menu-open .nav-toggle__bar:nth-child(3) {
+  transform: translateY(-7px) rotate(-45deg);
+}
+
 .brand-lockup,
 .display-lockup,
 .mini-lockup {
@@ -930,18 +971,58 @@ a {
 
 @media (max-width: 980px) {
   .site-header {
-    grid-template-columns: 1fr;
-    gap: 0.9rem;
-    padding: 1rem;
+    grid-template-columns: auto 1fr auto;
+    gap: 1rem;
+    padding: 0.9rem 1rem;
+  }
+
+  .nav-toggle {
+    display: inline-flex;
   }
 
   .site-header nav {
-    justify-content: flex-start;
-    overflow-x: auto;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    gap: 0;
+    padding: 0.5rem 1rem 1rem;
+    border-bottom: 1px solid var(--line);
+    background: rgba(5, 5, 5, 0.96);
+    backdrop-filter: blur(16px);
+    transform: translateY(-8px);
+    opacity: 0;
+    pointer-events: none;
+    transition: transform 180ms ease, opacity 180ms ease;
+  }
+
+  .site-header nav[data-open="true"] {
+    transform: translateY(0);
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .site-header nav a {
+    min-height: 48px;
+    padding: 0 0.75rem;
+    border-radius: 0;
+    border-bottom: 1px solid var(--line);
+    font-size: 1rem;
+  }
+
+  .site-header nav a:last-child {
+    border-bottom: 0;
+  }
+
+  .site-header nav a:hover {
+    border-color: transparent;
+    border-bottom-color: var(--ink);
+    color: var(--ink);
   }
 
   .status-pill {
-    justify-self: start;
+    display: none;
   }
 
   .hero,
@@ -1020,14 +1101,6 @@ a {
 
   .brand-divider {
     height: 30px;
-  }
-
-  .site-header nav {
-    gap: 0;
-  }
-
-  .site-header nav a {
-    padding: 0 0.65rem;
   }
 
   .lockup-band,
