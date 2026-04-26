@@ -103,23 +103,25 @@ a {
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   background: transparent;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius);
-  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 0;
+  color: var(--muted);
   cursor: pointer;
-  transition: border-color 160ms ease;
+  transition: color 160ms ease, border-color 160ms ease;
 }
 
-.nav-toggle:hover {
+.nav-toggle:hover,
+.nav-toggle[aria-expanded="true"] {
   border-color: var(--ink);
+  color: var(--ink);
 }
 
 .nav-toggle__bar {
   display: block;
-  width: 20px;
-  height: 2px;
+  width: 18px;
+  height: 1px;
   background: currentColor;
   transition: transform 200ms ease, opacity 200ms ease;
 }
@@ -971,7 +973,7 @@ a {
 
 @media (max-width: 980px) {
   .site-header {
-    grid-template-columns: auto 1fr auto;
+    grid-template-columns: auto 1fr;
     gap: 1rem;
     padding: 0.9rem 1rem;
   }
@@ -987,11 +989,12 @@ a {
     right: 0;
     flex-direction: column;
     gap: 0;
-    padding: 0.5rem 1rem 1rem;
+    padding: 0;
+    border-top: 1px solid var(--line);
     border-bottom: 1px solid var(--line);
-    background: rgba(5, 5, 5, 0.96);
-    backdrop-filter: blur(16px);
-    transform: translateY(-8px);
+    background: var(--paper);
+    counter-reset: nav-item;
+    transform: translateY(-4px);
     opacity: 0;
     pointer-events: none;
     transition: transform 180ms ease, opacity 180ms ease;
@@ -1004,20 +1007,37 @@ a {
   }
 
   .site-header nav a {
-    min-height: 48px;
-    padding: 0 0.75rem;
-    border-radius: 0;
+    counter-increment: nav-item;
+    min-height: 56px;
+    padding: 0 1rem;
+    border: 0;
     border-bottom: 1px solid var(--line);
+    border-radius: 0;
+    color: var(--muted);
     font-size: 1rem;
+    letter-spacing: 0.01em;
+  }
+
+  .site-header nav a::before {
+    content: counter(nav-item, decimal-leading-zero) ".";
+    display: inline-block;
+    width: 2.6rem;
+    color: var(--line-strong);
+    font-variant-numeric: tabular-nums;
+    transition: color 160ms ease;
   }
 
   .site-header nav a:last-child {
     border-bottom: 0;
   }
 
-  .site-header nav a:hover {
-    border-color: transparent;
-    border-bottom-color: var(--ink);
+  .site-header nav a:hover,
+  .site-header nav a:focus-visible {
+    color: var(--ink);
+  }
+
+  .site-header nav a:hover::before,
+  .site-header nav a:focus-visible::before {
     color: var(--ink);
   }
 

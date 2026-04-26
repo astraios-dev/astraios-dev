@@ -113,12 +113,6 @@ function App() {
   return (
     <div className="site">
       <header className={`site-header${menuOpen ? " site-header--menu-open" : ""}`}>
-        <a className="brand-lockup" href="#top" aria-label="Astraios home">
-          <LogoMark size="small" />
-          <span className="brand-divider" aria-hidden="true" />
-          <Wordmark />
-        </a>
-
         <button
           type="button"
           className="nav-toggle"
@@ -131,6 +125,12 @@ function App() {
           <span className="nav-toggle__bar" aria-hidden="true" />
           <span className="nav-toggle__bar" aria-hidden="true" />
         </button>
+
+        <a className="brand-lockup" href="#top" aria-label="Astraios home">
+          <LogoMark size="small" />
+          <span className="brand-divider" aria-hidden="true" />
+          <Wordmark />
+        </a>
 
         <nav
           id="primary-navigation"
