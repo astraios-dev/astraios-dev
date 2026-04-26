@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 const navItems = [
   { label: "Platform", href: "#platform" },
   { label: "Stack", href: "#stack" },
+  { label: "Toolchain", href: "#toolchain" },
   { label: "Protocol", href: "#protocol" },
   { label: "Team", href: "#team" },
   { label: "Surfaces", href: "#surfaces" },
@@ -48,6 +49,88 @@ const systemPanels = [
     number: "04",
     title: "Execution Layer",
     text: "Paper trading by default via Alpaca. Live routing is opt-in, queued through Redis to decouple strategy from order flow, and logged end to end.",
+  },
+];
+
+const toolchainLayers = [
+  {
+    number: "01",
+    title: "Data feeds",
+    note: "Free-tier to start",
+    tools: [
+      { name: "Polygon.io", role: "Real-time US equities, options, and forex." },
+      { name: "CCXT + Binance", role: "All crypto data via one library, with WebSocket order books." },
+      { name: "FRED API", role: "Macro features — rates, CPI, yield curve, GDP." },
+      { name: "SEC EDGAR", role: "Filings, insider trades, 13F holdings. NLP feature source." },
+      { name: "Quiver Quant", role: "Congress trades and WSB sentiment. Differentiation signal." },
+    ],
+  },
+  {
+    number: "02",
+    title: "Pipeline & feature store",
+    note: "Open source",
+    tools: [
+      { name: "Apache Kafka", role: "Streaming ingestion. One topic per asset class." },
+      { name: "TimescaleDB", role: "Postgres for time-series. OHLCV and features live here." },
+      { name: "Feast", role: "Feature store. Same features at training and inference time." },
+      { name: "Apache Airflow", role: "Batch pipelines — EOD data, macro updates, EDGAR filings." },
+    ],
+  },
+  {
+    number: "03",
+    title: "Model stack",
+    note: "PyTorch + ONNX",
+    tools: [
+      { name: "HMM + LSTM", role: "Trend and regime detection. State classifier plus sequence refinement." },
+      { name: "Temporal Fusion Transformer", role: "Multi-horizon forecasts across mixed static and time-series inputs." },
+      { name: "CVaR optimizer", role: "Risk-aware position sizing. Beats mean-variance for fat tails." },
+      { name: "ONNX Runtime", role: "Exported inference path. 3–5× faster than PyTorch in production." },
+      { name: "MLflow", role: "Experiment tracking, model registry, and versioning." },
+    ],
+  },
+  {
+    number: "04",
+    title: "Strategy engine",
+    note: "Core IP",
+    tools: [
+      { name: "VectorBT", role: "Vectorised backtests for strategy iteration." },
+      { name: "Signal layer", role: "Aggregates model outputs into buy / sell / hold with confidence and rationale." },
+      { name: "Fractional Kelly", role: "0.25× Kelly sizing — grows capital while controlling drawdown." },
+      { name: "Redis", role: "Signal cache and order queue between strategy and execution." },
+    ],
+  },
+  {
+    number: "05",
+    title: "Consumer surface",
+    note: "Next.js + FastAPI",
+    tools: [
+      { name: "Next.js", role: "SSR frontend with TradingView Lightweight Charts." },
+      { name: "FastAPI", role: "Python backend for signals, portfolios, and dashboards." },
+      { name: "PostgreSQL", role: "Users, subscriptions, saved strategies, notification prefs." },
+      { name: "SHAP / LIME", role: "Per-signal explainability — the top features behind every call." },
+    ],
+  },
+  {
+    number: "06",
+    title: "Execution & broker API",
+    note: "Paper-first",
+    tools: [
+      { name: "FastAPI (async)", role: "REST + WebSocket API for non-blocking order management." },
+      { name: "Alpaca", role: "Primary broker. Commission-free US equities and crypto." },
+      { name: "Interactive Brokers", role: "Secondary broker for global assets, futures, and forex." },
+      { name: "Celery + Redis", role: "Async order queue with retries, rate limits, and status tracking." },
+    ],
+  },
+  {
+    number: "07",
+    title: "Infra & observability",
+    note: "AWS / ECS",
+    tools: [
+      { name: "AWS", role: "EC2/ECS for services, RDS for Postgres, MSK for managed Kafka." },
+      { name: "Docker + ECS", role: "Containers everywhere. ECS over Kubernetes at MVP." },
+      { name: "Prometheus + Grafana", role: "Model latency, signal accuracy, fill rates, drawdown." },
+      { name: "Sentry", role: "Error tracking. Non-negotiable with live capital on the line." },
+    ],
   },
 ];
 
@@ -275,9 +358,64 @@ function App() {
           </div>
         </section>
 
-        <section className="process" id="protocol" aria-labelledby="protocol-title" data-reveal>
+        <section className="toolchain" id="toolchain" aria-labelledby="toolchain-title" data-reveal>
           <div className="section-label">
             <span>5.</span>
+            <span>Toolchain</span>
+          </div>
+
+          <div className="toolchain__heading">
+            <h2 id="toolchain-title">The build sheet — every tool behind the four layers.</h2>
+            <p>
+              Bias toward open source, paper-first, and boring where it
+              counts. Every line below is either free at our scale or earns
+              its cost against a specific model or execution requirement.
+            </p>
+          </div>
+
+          <ol className="toolchain__layers">
+            {toolchainLayers.map((layer) => (
+              <li className="toolchain-layer" key={layer.number}>
+                <div className="toolchain-layer__head">
+                  <span className="toolchain-layer__number">{layer.number}</span>
+                  <h3>{layer.title}</h3>
+                  <span className="toolchain-layer__note">{layer.note}</span>
+                </div>
+                <ul className="toolchain-layer__tools">
+                  {layer.tools.map((tool) => (
+                    <li key={tool.name}>
+                      <span className="toolchain-tool__name">{tool.name}</span>
+                      <span className="toolchain-tool__role">{tool.role}</span>
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ol>
+
+          <dl className="toolchain__cost" aria-label="Indicative MVP monthly cost">
+            <div>
+              <dt>Data feeds</dt>
+              <dd>~$0</dd>
+            </div>
+            <div>
+              <dt>Infra (AWS)</dt>
+              <dd>~$80–120</dd>
+            </div>
+            <div>
+              <dt>Tooling</dt>
+              <dd>~$0</dd>
+            </div>
+            <div>
+              <dt>MVP total</dt>
+              <dd>~$100 / mo</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section className="process" id="protocol" aria-labelledby="protocol-title" data-reveal>
+          <div className="section-label">
+            <span>6.</span>
             <span>Research Protocol</span>
           </div>
 
@@ -303,7 +441,7 @@ function App() {
 
         <section className="team" id="team" aria-labelledby="team-title" data-reveal>
           <div className="section-label">
-            <span>6.</span>
+            <span>7.</span>
             <span>Operators</span>
           </div>
 
@@ -335,7 +473,7 @@ function App() {
         <section className="contrast-section" id="surfaces" aria-label="Platform surfaces" data-reveal>
           <div className="contrast-panel contrast-panel--light">
             <div className="section-label">
-              <span>7A.</span>
+              <span>8A.</span>
               <span>Consumer App</span>
             </div>
             <p className="surface-copy">
@@ -346,7 +484,7 @@ function App() {
 
           <div className="contrast-panel contrast-panel--dark">
             <div className="section-label">
-              <span>7B.</span>
+              <span>8B.</span>
               <span>Trading API</span>
             </div>
             <p className="surface-copy">
@@ -358,7 +496,7 @@ function App() {
 
           <div className="contrast-panel contrast-panel--icon">
             <div className="section-label">
-              <span>7C.</span>
+              <span>8C.</span>
               <span>Telemetry</span>
             </div>
             <div className="app-icon" aria-hidden="true">
