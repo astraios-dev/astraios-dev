@@ -376,7 +376,7 @@ function Footer() {
         </div>
         <div>
           <p className="footer-label">Elsewhere</p>
-          <a href="https://github.com/astraios" rel="noreferrer noopener">GitHub</a>
+          <a href="https://github.com/astraios-dev" rel="noreferrer noopener">GitHub</a>
         </div>
         <div>
           <p className="footer-label">Status</p>
