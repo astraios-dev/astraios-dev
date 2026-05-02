@@ -17,9 +17,10 @@ async def list_signals(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    crypto_filter = Signal.ticker.like("%USDT%")
     latest_subq = (
         select(Signal.ticker, func.max(Signal.created_at).label("max_ts"))
-        .where(Signal.user_id == user.id)
+        .where(Signal.user_id == user.id, crypto_filter)
         .group_by(Signal.ticker)
         .subquery()
     )
