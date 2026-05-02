@@ -1,5 +1,10 @@
 node_modules/
 .DS_Store
+.env
+.venv/
+__pycache__/
+*.pyc
+claude-session.jsonl
 
 # Claude Code local state
 .claude/settings.local.json

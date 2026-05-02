@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
+import { useAuth } from "./AuthContext.jsx";
 
 const navItems = [
   { label: "Platform", href: "#platform" },
@@ -48,7 +50,7 @@ const systemPanels = [
   {
     number: "04",
     title: "Execution Layer",
-    text: "Paper trading by default via Alpaca. Live routing is opt-in, queued through Redis to decouple strategy from order flow, and logged end to end.",
+    text: "Paper trading by default via Alpaca, with on-chain routing on Solana for 24/7 fills and sub-second settlement. Live routing is opt-in, queued through Redis to decouple strategy from order flow, and logged end to end.",
   },
 ];
 
@@ -118,6 +120,7 @@ const toolchainLayers = [
       { name: "FastAPI (async)", role: "REST + WebSocket API for non-blocking order management." },
       { name: "Alpaca", role: "Primary broker. Commission-free US equities and crypto." },
       { name: "Interactive Brokers", role: "Secondary broker for global assets, futures, and forex." },
+      { name: "Solana", role: "On-chain execution venue. 24/7 fills, sub-second settlement, programmatic DEX routing." },
       { name: "Celery + Redis", role: "Async order queue with retries, rate limits, and status tracking." },
     ],
   },
@@ -175,6 +178,7 @@ const processSteps = [
 function App() {
   useScrollReveal();
   const [menuOpen, setMenuOpen] = useState(false);
+  const { user } = useAuth();
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -214,23 +218,35 @@ function App() {
           ))}
         </nav>
 
-        <button
-          type="button"
-          className="nav-toggle"
-          aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"}
-          aria-expanded={menuOpen}
-          aria-controls="primary-navigation"
-          onClick={() => setMenuOpen((v) => !v)}
-        >
-          <span className="nav-toggle__bar" aria-hidden="true" />
-          <span className="nav-toggle__bar" aria-hidden="true" />
-          <span className="nav-toggle__bar" aria-hidden="true" />
-        </button>
+        <div className="header-right">
+          {user ? (
+            <Link to="/dashboard" className="header-auth-link">
+              Dashboard
+            </Link>
+          ) : (
+            <Link to="/login" className="header-auth-link">
+              Sign in
+            </Link>
+          )}
 
-        <span className="status-pill" role="status">
-          <span className="status-pill__dot" aria-hidden="true" />
-          <span className="status-pill__text">Private beta — Q2 2026</span>
-        </span>
+          <span className="status-pill" role="status">
+            <span className="status-pill__dot" aria-hidden="true" />
+            <span className="status-pill__text">Private beta — Q2 2026</span>
+          </span>
+
+          <button
+            type="button"
+            className="nav-toggle"
+            aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"}
+            aria-expanded={menuOpen}
+            aria-controls="primary-navigation"
+            onClick={() => setMenuOpen((v) => !v)}
+          >
+            <span className="nav-toggle__bar" aria-hidden="true" />
+            <span className="nav-toggle__bar" aria-hidden="true" />
+            <span className="nav-toggle__bar" aria-hidden="true" />
+          </button>
+        </div>
       </header>
 
       <main id="top">
