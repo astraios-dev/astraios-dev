@@ -18,5 +18,10 @@ class User(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
+    bybit_api_key: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    bybit_api_secret: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    bybit_testnet_key: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    bybit_testnet_secret: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
     signals: Mapped[list["Signal"]] = relationship(back_populates="user", lazy="selectin")
     positions: Mapped[list["Position"]] = relationship(back_populates="user", lazy="selectin")

@@ -3,10 +3,13 @@ from pybit.unified_trading import HTTP
 from api.config import settings
 
 
-def _client() -> HTTP:
+def _client(api_key: str | None = None, api_secret: str | None = None, testnet: bool = False) -> HTTP:
+    key = api_key or settings.bybit_api_key
+    secret = api_secret or settings.bybit_api_secret
     client = HTTP(
-        api_key=settings.bybit_api_key,
-        api_secret=settings.bybit_api_secret,
+        api_key=key if key else None,
+        api_secret=secret if secret else None,
+        testnet=testnet,
     )
     if settings.bybit_proxy:
         client.client.proxies = {
@@ -16,6 +19,15 @@ def _client() -> HTTP:
     return client
 
 
+def _auth_client(api_key: str | None = None, api_secret: str | None = None, testnet: bool = False) -> HTTP:
+    key = api_key or settings.bybit_api_key
+    secret = api_secret or settings.bybit_api_secret
+    if not key or not secret:
+        msg = "No Bybit testnet keys configured. Add them in Account settings." if testnet else "No Bybit API keys configured. Add them in Account settings."
+        raise RuntimeError(msg)
+    return _client(key, secret, testnet=testnet)
+
+
 def _call(fn, **kwargs):
     resp = fn(**kwargs)
     if resp.get("retCode") != 0:
@@ -23,12 +35,12 @@ def _call(fn, **kwargs):
     return resp["result"]
 
 
-async def get_positions(symbol: str | None = None) -> list[dict]:
+async def get_positions(symbol: str | None = None, api_key: str | None = None, api_secret: str | None = None, testnet: bool = False) -> list[dict]:
     def _run():
         params = {"category": "linear", "settleCoin": "USDT"}
         if symbol:
             params["symbol"] = symbol
-        result = _call(_client().get_positions, **params)
+        result = _call(_auth_client(api_key, api_secret, testnet).get_positions, **params)
         positions = []
         for p in result.get("list", []):
             size = float(p.get("size", 0))
@@ -60,6 +72,9 @@ async def place_order(
     qty: str,
     tp: str | None = None,
     sl: str | None = None,
+    api_key: str | None = None,
+    api_secret: str | None = None,
+    testnet: bool = False,
 ) -> dict:
     def _run():
         params = {
@@ -74,7 +89,7 @@ async def place_order(
             params["takeProfit"] = tp
         if sl:
             params["stopLoss"] = sl
-        result = _call(_client().place_order, **params)
+        result = _call(_auth_client(api_key, api_secret, testnet).place_order, **params)
         return {
             "order_id": result.get("orderId", ""),
             "order_link_id": result.get("orderLinkId", ""),
@@ -83,17 +98,17 @@ async def place_order(
     return await asyncio.to_thread(_run)
 
 
-async def close_position(symbol: str, side: str, qty: str) -> dict:
+async def close_position(symbol: str, side: str, qty: str, api_key: str | None = None, api_secret: str | None = None, testnet: bool = False) -> dict:
     close_side = "Sell" if side == "Buy" else "Buy"
-    return await place_order(symbol=symbol, side=close_side, qty=qty)
+    return await place_order(symbol=symbol, side=close_side, qty=qty, api_key=api_key, api_secret=api_secret, testnet=testnet)
 
 
-async def get_open_orders(symbol: str | None = None) -> list[dict]:
+async def get_open_orders(symbol: str | None = None, api_key: str | None = None, api_secret: str | None = None, testnet: bool = False) -> list[dict]:
     def _run():
         params = {"category": "linear", "settleCoin": "USDT"}
         if symbol:
             params["symbol"] = symbol
-        result = _call(_client().get_open_orders, **params)
+        result = _call(_auth_client(api_key, api_secret, testnet).get_open_orders, **params)
         orders = []
         for o in result.get("list", []):
             orders.append({
@@ -111,9 +126,9 @@ async def get_open_orders(symbol: str | None = None) -> list[dict]:
     return await asyncio.to_thread(_run)
 
 
-async def get_wallet_balance() -> dict:
+async def get_wallet_balance(api_key: str | None = None, api_secret: str | None = None, testnet: bool = False) -> dict:
     def _run():
-        result = _call(_client().get_wallet_balance, accountType="UNIFIED")
+        result = _call(_auth_client(api_key, api_secret, testnet).get_wallet_balance, accountType="UNIFIED")
         acct = result.get("list", [{}])[0]
         return {
             "equity": acct.get("totalEquity", "0"),
@@ -126,10 +141,53 @@ async def get_wallet_balance() -> dict:
     return await asyncio.to_thread(_run)
 
 
-async def set_leverage(symbol: str, leverage: str) -> dict:
+async def get_symbols() -> list[dict]:
+    def _run():
+        result = _call(_client().get_tickers, category="linear")
+        symbols = []
+        for t in result.get("list", []):
+            if not t["symbol"].endswith("USDT"):
+                continue
+            symbols.append({
+                "symbol": t["symbol"],
+                "last_price": t.get("lastPrice", "0"),
+                "change_pct": t.get("price24hPcnt", "0"),
+                "turnover_24h": float(t.get("turnover24h", 0)),
+            })
+        symbols.sort(key=lambda s: s["turnover_24h"], reverse=True)
+        return symbols
+
+    return await asyncio.to_thread(_run)
+
+
+async def get_klines(symbol: str, interval: str = "60", limit: int = 200) -> list[dict]:
     def _run():
         result = _call(
-            _client().set_leverage,
+            _client().get_kline,
+            category="linear",
+            symbol=symbol,
+            interval=interval,
+            limit=limit,
+        )
+        candles = []
+        for r in reversed(result.get("list", [])):
+            candles.append({
+                "time": int(r[0]) // 1000,
+                "open": float(r[1]),
+                "high": float(r[2]),
+                "low": float(r[3]),
+                "close": float(r[4]),
+                "volume": float(r[5]),
+            })
+        return candles
+
+    return await asyncio.to_thread(_run)
+
+
+async def set_leverage(symbol: str, leverage: str, api_key: str | None = None, api_secret: str | None = None, testnet: bool = False) -> dict:
+    def _run():
+        result = _call(
+            _auth_client(api_key, api_secret, testnet).set_leverage,
             category="linear",
             symbol=symbol,
             buyLeverage=leverage,

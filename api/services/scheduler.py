@@ -2,13 +2,12 @@
 Background scheduler that runs on app startup.
 
 Two recurring jobs:
-  1. refresh_signals  — generate fresh signals for every user (every 15 min)
-  2. refresh_prices   — update current_price on all open positions (every 5 min)
+  1. refresh_signals  — generate signals from Bybit klines for every user (every 15 min)
+  2. refresh_prices   — update current_price on paper positions via yfinance (every 5 min)
 """
 
 import asyncio
 import logging
-from datetime import datetime, timezone
 
 from sqlalchemy import select, update
 
@@ -44,7 +43,7 @@ async def refresh_signals():
                         rationale=sig.rationale,
                     ))
             await db.commit()
-        log.info("refreshed signals: %d tickers × %d users", len(signals), len(users))
+        log.info("refreshed signals: %d symbols × %d users", len(signals), len(users))
     except Exception:
         log.exception("signal refresh failed")
 

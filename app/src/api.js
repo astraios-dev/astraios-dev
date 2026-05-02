@@ -34,13 +34,20 @@ export const api = {
   deletePosition: (id) => apiFetch(`/portfolio/${id}`, { method: "DELETE" }),
 
   accountStats: () => apiFetch("/account/stats"),
+  saveApiKeys: (body) => apiFetch("/account/api-keys", { method: "POST", body: JSON.stringify(body) }),
+  removeApiKeys: () => apiFetch("/account/api-keys", { method: "DELETE" }),
+  saveTestnetKeys: (body) => apiFetch("/account/testnet-keys", { method: "POST", body: JSON.stringify(body) }),
+  removeTestnetKeys: () => apiFetch("/account/testnet-keys", { method: "DELETE" }),
 
   marketPrices: () => apiFetch("/market/prices"),
   marketRefresh: () => apiFetch("/market/refresh", { method: "POST" }),
 
-  tradePositions: (symbol) => apiFetch(`/trade/positions${symbol ? `?symbol=${symbol}` : ""}`),
-  tradeOrders: (symbol) => apiFetch(`/trade/orders${symbol ? `?symbol=${symbol}` : ""}`),
-  tradeWallet: () => apiFetch("/trade/wallet"),
+  tradeSymbols: () => apiFetch("/trade/symbols"),
+  tradeKlines: (symbol, interval = "60", limit = 200) =>
+    apiFetch(`/trade/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`),
+  tradePositions: (symbol, testnet = false) => apiFetch(`/trade/positions?testnet=${testnet}${symbol ? `&symbol=${symbol}` : ""}`),
+  tradeOrders: (symbol, testnet = false) => apiFetch(`/trade/orders?testnet=${testnet}${symbol ? `&symbol=${symbol}` : ""}`),
+  tradeWallet: (testnet = false) => apiFetch(`/trade/wallet?testnet=${testnet}`),
   tradeOrder: (body) => apiFetch("/trade/order", { method: "POST", body: JSON.stringify(body) }),
   tradeClose: (body) => apiFetch("/trade/close", { method: "POST", body: JSON.stringify(body) }),
   tradeLeverage: (body) => apiFetch("/trade/leverage", { method: "POST", body: JSON.stringify(body) }),

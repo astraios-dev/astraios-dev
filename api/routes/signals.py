@@ -1,6 +1,6 @@
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.db import get_db
@@ -17,8 +17,17 @@ async def list_signals(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    latest_subq = (
+        select(Signal.ticker, func.max(Signal.created_at).label("max_ts"))
+        .where(Signal.user_id == user.id)
+        .group_by(Signal.ticker)
+        .subquery()
+    )
     result = await db.execute(
-        select(Signal).where(Signal.user_id == user.id).order_by(Signal.created_at.desc())
+        select(Signal)
+        .join(latest_subq, (Signal.ticker == latest_subq.c.ticker) & (Signal.created_at == latest_subq.c.max_ts))
+        .where(Signal.user_id == user.id)
+        .order_by(Signal.confidence.desc())
     )
     return [
         SignalResponse(id=str(s.id), ticker=s.ticker, action=s.action,
