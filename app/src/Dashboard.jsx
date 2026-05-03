@@ -16,6 +16,7 @@ export default function Dashboard() {
   const [lastUpdated, setLastUpdated] = useState(null);
 
   // Bybit state
+  const [modelInfo, setModelInfo] = useState(null);
   const [bybitPositions, setBybitPositions] = useState([]);
   const [wallet, setWallet] = useState(null);
   const [bybitError, setBybitError] = useState(null);
@@ -80,9 +81,8 @@ export default function Dashboard() {
   }, [isLive]);
 
   useEffect(() => {
-    api.tradeSymbols()
-      .then((syms) => setAllSymbols(syms))
-      .catch(() => {});
+    api.tradeSymbols().then(setAllSymbols).catch(() => {});
+    api.modelInfo().then(setModelInfo).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -689,7 +689,17 @@ export default function Dashboard() {
               <section className="dash-signals" aria-labelledby="signals-title">
                 <div className="dash-section-head">
                   <h2 id="signals-title">{signalPage === 0 ? "Top trades" : "All signals"}</h2>
-                  <span className="dash-section-badge">{signalPage === 0 ? `Top ${Math.min(FIRST_PAGE, signals.length)}` : `${signals.length} total`}</span>
+                  <div className="signals-head-right">
+                    {modelInfo?.model_loaded && (
+                      <span className="model-badge" title={`${modelInfo.n_features} features · d_model=${modelInfo.d_model} · ${modelInfo.n_layers}L · seq=${modelInfo.seq_len}`}>
+                        Transformer · {modelInfo.val_acc}% val
+                      </span>
+                    )}
+                    {modelInfo && !modelInfo.model_loaded && (
+                      <span className="model-badge model-badge--heuristic">Heuristic</span>
+                    )}
+                    <span className="dash-section-badge">{signalPage === 0 ? `Top ${Math.min(FIRST_PAGE, signals.length)}` : `${signals.length} total`}</span>
+                  </div>
                 </div>
 
                 {signals.length === 0 ? (

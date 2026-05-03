@@ -19,7 +19,7 @@ PREFIX = "ml/training"
 REGION = "us-east-1"
 JOB_PREFIX = "astraios-transformer"
 
-PYTORCH_IMAGE = "763104351884.dkr.ecr.us-east-1.amazonaws.com/pytorch-training:2.1.0-cpu-py310-ubuntu20.04-sagemaker"
+PYTORCH_IMAGE = "763104351884.dkr.ecr.us-east-1.amazonaws.com/pytorch-training:2.1.0-gpu-py310-cu121-ubuntu20.04-sagemaker-v1.6"
 
 
 def get_role_arn():
@@ -61,14 +61,14 @@ def main():
 
     hyperparameters = {
         "epochs": "60",
-        "batch-size": "128",
+        "batch-size": "256",
         "lr": "0.00005",
-        "seq-len": "48",
-        "d-model": "128",
-        "n-heads": "4",
-        "n-layers": "3",
-        "d-ff": "256",
-        "dropout": "0.1",
+        "seq-len": "64",
+        "d-model": "256",
+        "n-heads": "8",
+        "n-layers": "4",
+        "d-ff": "512",
+        "dropout": "0.25",
     }
 
     sm.create_training_job(
@@ -94,12 +94,12 @@ def main():
             "S3OutputPath": f"s3://{BUCKET}/{PREFIX}/output/",
         },
         ResourceConfig={
-            "InstanceType": "ml.m5.xlarge",
+            "InstanceType": "ml.g5.xlarge",
             "InstanceCount": 1,
             "VolumeSizeInGB": 30,
         },
         StoppingCondition={
-            "MaxRuntimeInSeconds": 3600,
+            "MaxRuntimeInSeconds": 7200,
         },
         HyperParameters={
             **hyperparameters,

@@ -32,6 +32,7 @@ FEATURE_COLS = [
     "mom_5", "mom_10", "mom_20",
     "high_low_range", "close_position",
     "rolling_vol_5", "rolling_vol_20",
+    "taker_buy_ratio", "taker_buy_ma8", "taker_buy_delta", "taker_buy_pressure",
     "funding_rate", "funding_rate_ma8", "funding_rate_std8", "funding_cumulative",
     "oi_change", "oi_ratio", "oi_price_div",
     "long_short_ratio", "ls_ma8", "ls_change",
@@ -113,7 +114,7 @@ def _rsi(closes, period=14):
     return 100 - (100 / (1 + rs))
 
 
-def _engineer(closes, highs, lows, volumes):
+def _engineer(closes, highs, lows, volumes, taker_buy_ratios=None):
     n = len(closes)
     feats = {}
 
@@ -171,6 +172,21 @@ def _engineer(closes, highs, lows, volumes):
     feats["rolling_vol_5"] = np.array([np.std(feats["returns"][max(0, i-4):i+1]) for i in range(n)])
     feats["rolling_vol_20"] = np.array([np.std(feats["returns"][max(0, i-19):i+1]) for i in range(n)])
 
+    # Taker buy ratio — from kline data if available, else neutral 0.5
+    if taker_buy_ratios is not None and len(taker_buy_ratios) > 0:
+        tbr = np.array(taker_buy_ratios, dtype=np.float32)
+        tbr_full = np.full(n, 0.5, dtype=np.float32)
+        tbr_full[-len(tbr):] = tbr[-n:] if len(tbr) >= n else np.concatenate([np.full(n - len(tbr), 0.5), tbr])
+    else:
+        tbr_full = np.full(n, 0.5, dtype=np.float32)
+
+    vol_ratio = feats["vol_ratio"]
+    tbr_ma8 = np.array([np.mean(tbr_full[max(0, i-7):i+1]) for i in range(n)])
+    feats["taker_buy_ratio"]    = tbr_full
+    feats["taker_buy_ma8"]      = tbr_ma8
+    feats["taker_buy_delta"]    = tbr_full - tbr_ma8
+    feats["taker_buy_pressure"] = (tbr_full - 0.5) * vol_ratio
+
     return feats
 
 
@@ -226,12 +242,12 @@ def _feats_to_matrix(feats):
     return np.column_stack([feats[col] for col in FEATURE_COLS]).astype(np.float32)
 
 
-def _predict_symbol(closes, highs, lows, volumes, funding_rates=None,
-                    open_interests=None, ls_ratios=None, seq_len=32):
+def _predict_symbol(closes, highs, lows, volumes, taker_buy_ratios=None,
+                    funding_rates=None, open_interests=None, ls_ratios=None, seq_len=32):
     import torch
 
     n = len(closes)
-    feats = _engineer(closes, highs, lows, volumes)
+    feats = _engineer(closes, highs, lows, volumes, taker_buy_ratios)
     feats = _add_market_microstructure(feats, funding_rates, open_interests, ls_ratios, n)
     feat_matrix = _feats_to_matrix(feats)
     feat_matrix = np.nan_to_num(feat_matrix, nan=0.0, posinf=0.0, neginf=0.0)
@@ -298,6 +314,8 @@ async def generate_signals(symbols=None):
                 highs   = np.array([float(r[2]) for r in rows], dtype=np.float32)
                 lows    = np.array([float(r[3]) for r in rows], dtype=np.float32)
                 volumes = np.array([float(r[5]) for r in rows], dtype=np.float32)
+                # Bybit klines don't include taker buy volume — use neutral 0.5
+                taker_buy_ratios = None
 
                 # Fetch funding rates (public endpoint)
                 funding_rates = None
@@ -329,7 +347,8 @@ async def generate_signals(symbols=None):
 
                 if model_ready:
                     result = _predict_symbol(closes, highs, lows, volumes,
-                                             funding_rates, open_interests, ls_ratios,
+                                             taker_buy_ratios, funding_rates,
+                                             open_interests, ls_ratios,
                                              _config["seq_len"])
                     if result is None:
                         continue

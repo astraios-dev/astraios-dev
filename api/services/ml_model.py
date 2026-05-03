@@ -24,14 +24,14 @@ class PositionalEncoding(nn.Module):
 class MarketTransformer(nn.Module):
     def __init__(
         self,
-        n_features=35,
-        d_model=128,
-        n_heads=4,
-        n_layers=3,
-        d_ff=256,
+        n_features=39,
+        d_model=256,
+        n_heads=8,
+        n_layers=4,
+        d_ff=512,
         n_classes=3,
         dropout=0.0,
-        seq_len=48,
+        seq_len=64,
     ):
         super().__init__()
 

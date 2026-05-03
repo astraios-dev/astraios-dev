@@ -99,3 +99,24 @@ async def remove_testnet_keys(
     user.bybit_testnet_secret = None
     await db.commit()
     return {"status": "ok"}
+
+
+@router.get("/model-info")
+async def model_info(user: User = Depends(get_current_user)):
+    import os, json
+    model_dir = os.path.join(os.path.dirname(__file__), "../../ml/output")
+    config_path = os.path.join(model_dir, "config.json")
+    model_path = os.path.join(model_dir, "model.pt")
+    if not os.path.exists(config_path) or not os.path.exists(model_path):
+        return {"engine": "heuristic", "model_loaded": False}
+    with open(config_path) as f:
+        cfg = json.load(f)
+    return {
+        "engine": "transformer",
+        "model_loaded": True,
+        "val_acc": round(cfg.get("best_val_acc", 0) * 100, 1),
+        "n_features": cfg.get("n_features"),
+        "d_model": cfg.get("d_model"),
+        "n_layers": cfg.get("n_layers"),
+        "seq_len": cfg.get("seq_len"),
+    }

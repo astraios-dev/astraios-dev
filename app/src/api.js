@@ -34,6 +34,7 @@ export const api = {
   deletePosition: (id) => apiFetch(`/portfolio/${id}`, { method: "DELETE" }),
 
   accountStats: () => apiFetch("/account/stats"),
+  modelInfo: () => apiFetch("/account/model-info"),
   saveApiKeys: (body) => apiFetch("/account/api-keys", { method: "POST", body: JSON.stringify(body) }),
   removeApiKeys: () => apiFetch("/account/api-keys", { method: "DELETE" }),
   saveTestnetKeys: (body) => apiFetch("/account/testnet-keys", { method: "POST", body: JSON.stringify(body) }),

@@ -2441,6 +2441,29 @@ a {
   text-transform: uppercase;
 }
 
+.signals-head-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.model-badge {
+  padding: 0.25rem 0.65rem;
+  border: 1px solid rgba(46, 203, 113, 0.3);
+  border-radius: 999px;
+  color: #2ecb71;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: default;
+}
+
+.model-badge--heuristic {
+  border-color: rgba(154, 154, 151, 0.3);
+  color: var(--muted);
+}
+
 /* Signals table */
 
 .signals-table-wrap,

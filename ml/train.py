@@ -32,6 +32,7 @@ FEATURE_COLS = [
     "mom_5", "mom_10", "mom_20",
     "high_low_range", "close_position",
     "rolling_vol_5", "rolling_vol_20",
+    "taker_buy_ratio", "taker_buy_ma8", "taker_buy_delta", "taker_buy_pressure",
     "funding_rate", "funding_rate_ma8", "funding_rate_std8", "funding_cumulative",
     "oi_change", "oi_ratio", "oi_price_div",
     "long_short_ratio", "ls_ma8", "ls_change",
@@ -260,14 +261,14 @@ def train(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--epochs",     type=int,   default=60)
-    parser.add_argument("--batch-size", type=int,   default=128)
-    parser.add_argument("--lr",         type=float, default=1e-4)
-    parser.add_argument("--seq-len",    type=int,   default=48)
+    parser.add_argument("--batch-size", type=int,   default=256)
+    parser.add_argument("--lr",         type=float, default=5e-5)
+    parser.add_argument("--seq-len",    type=int,   default=64)
     parser.add_argument("--d-model",    type=int,   default=256)
     parser.add_argument("--n-heads",    type=int,   default=8)
     parser.add_argument("--n-layers",   type=int,   default=4)
     parser.add_argument("--d-ff",       type=int,   default=512)
-    parser.add_argument("--dropout",    type=float, default=0.1)
+    parser.add_argument("--dropout",    type=float, default=0.25)
     parser.add_argument("--data-dir",   type=str,   default=os.environ.get("SM_CHANNEL_TRAINING", "ml"))
     parser.add_argument("--model-dir",  type=str,   default=os.environ.get("SM_MODEL_DIR", "ml/output"))
     args = parser.parse_args()
