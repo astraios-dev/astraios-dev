@@ -43,7 +43,7 @@ export const api = {
   marketRefresh: () => apiFetch("/market/refresh", { method: "POST" }),
 
   tradeSymbols: () => apiFetch("/trade/symbols"),
-  tradeKlines: (symbol, interval = "60", limit = 200) =>
+  tradeKlines: (symbol, interval = "60", limit = 1000) =>
     apiFetch(`/trade/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`),
   tradePositions: (symbol, testnet = false) => apiFetch(`/trade/positions?testnet=${testnet}${symbol ? `&symbol=${symbol}` : ""}`),
   tradeOrders: (symbol, testnet = false) => apiFetch(`/trade/orders?testnet=${testnet}${symbol ? `&symbol=${symbol}` : ""}`),

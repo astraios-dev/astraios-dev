@@ -60,10 +60,10 @@ def main():
     print(f"Starting training job: {job_name}")
 
     hyperparameters = {
-        "epochs": "50",
-        "batch-size": "64",
-        "lr": "0.001",
-        "seq-len": "32",
+        "epochs": "60",
+        "batch-size": "128",
+        "lr": "0.00005",
+        "seq-len": "48",
         "d-model": "128",
         "n-heads": "4",
         "n-layers": "3",

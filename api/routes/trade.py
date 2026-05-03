@@ -41,7 +41,7 @@ class LeverageRequest(BaseModel):
 async def klines(
     symbol: str,
     interval: str = "60",
-    limit: int = 200,
+    limit: int = Query(200, le=1000),
     user: User = Depends(get_current_user),
 ):
     try:

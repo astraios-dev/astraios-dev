@@ -27,9 +27,14 @@ export default function Dashboard() {
   const [allSymbols, setAllSymbols] = useState([]);
   const [symbolOpen, setSymbolOpen] = useState(false);
   const [symbolSearch, setSymbolSearch] = useState("");
-  const [chartInterval, setChartInterval] = useState("60");
-  const [orderForm, setOrderForm] = useState({ symbol: "BTCUSDT", side: "Buy", qty: "", tp: "", sl: "" });
-  const [tradingMode, setTradingMode] = useState("live");
+  const [chartInterval, setChartInterval] = useState(() => localStorage.getItem("astraios_interval") || "60");
+  const [leverage, setLeverage] = useState(() => localStorage.getItem("astraios_leverage") || "10");
+  const [settingLev, setSettingLev] = useState(false);
+  const [orderForm, setOrderForm] = useState(() => {
+    const saved = localStorage.getItem("astraios_symbol");
+    return { symbol: saved || "BTCUSDT", side: "Buy", qty: "", tp: "", sl: "" };
+  });
+  const [tradingMode, setTradingMode] = useState(() => localStorage.getItem("astraios_mode") || "live");
   const isLive = tradingMode === "live";
   const [keysForm, setKeysForm] = useState({ apiKey: "", apiSecret: "" });
   const [keysStatus, setKeysStatus] = useState(null);
@@ -101,29 +106,40 @@ export default function Dashboard() {
         layout: { background: { type: ColorType.Solid, color: "#050505" }, textColor: "#9a9a97", fontFamily: "Inter, sans-serif", fontSize: 11 },
         grid: { vertLines: { color: "#1a1a1a" }, horzLines: { color: "#1a1a1a" } },
         crosshair: { vertLine: { color: "#2a2a2a", labelBackgroundColor: "#141414" }, horzLine: { color: "#2a2a2a", labelBackgroundColor: "#141414" } },
-        rightPriceScale: { borderColor: "#2a2a2a" },
-        timeScale: { borderColor: "#2a2a2a", timeVisible: true },
+        rightPriceScale: { borderColor: "#2a2a2a", autoScale: true },
+        timeScale: { borderColor: "#2a2a2a", timeVisible: true, secondsVisible: false },
         width: el.clientWidth,
         height: 340,
       });
-      const candleSeries = chart.addCandlestickSeries({
-        upColor: "#2ecb71", downColor: "#e04040", borderDownColor: "#e04040", borderUpColor: "#2ecb71",
-        wickDownColor: "#e04040", wickUpColor: "#2ecb71",
-      });
-      const volumeSeries = chart.addHistogramSeries({
-        priceFormat: { type: "volume" },
-        priceScaleId: "vol",
-      });
-      volumeSeries.priceScale().applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
       chartInstanceRef.current = chart;
-      candleSeriesRef.current = candleSeries;
-      volumeSeriesRef.current = volumeSeries;
-      api.tradeKlines(orderForm.symbol, chartInterval).then((data) => {
-        if (!chartInstanceRef.current) return;
+      api.tradeKlines(orderForm.symbol, chartInterval, 1000).then((data) => {
+        if (!chartInstanceRef.current || !data.length) return;
+        const lastPrice = data[data.length - 1].close;
+        let precision = 2;
+        let minMove = 0.01;
+        if (lastPrice < 0.01) { precision = 8; minMove = 0.00000001; }
+        else if (lastPrice < 1) { precision = 6; minMove = 0.000001; }
+        else if (lastPrice < 100) { precision = 4; minMove = 0.0001; }
+        else if (lastPrice < 10000) { precision = 2; minMove = 0.01; }
+        else { precision = 1; minMove = 0.1; }
+        const candleSeries = chart.addCandlestickSeries({
+          upColor: "#2ecb71", downColor: "#e04040", borderDownColor: "#e04040", borderUpColor: "#2ecb71",
+          wickDownColor: "#e04040", wickUpColor: "#2ecb71",
+          priceFormat: { type: "price", precision, minMove },
+        });
+        const volumeSeries = chart.addHistogramSeries({
+          priceFormat: { type: "volume" },
+          priceScaleId: "vol",
+        });
+        volumeSeries.priceScale().applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
+        candleSeriesRef.current = candleSeries;
+        volumeSeriesRef.current = volumeSeries;
         candleSeries.setData(data.map((c) => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })));
         volumeSeries.setData(data.map((c) => ({ time: c.time, value: c.volume, color: c.close >= c.open ? "rgba(46,203,113,0.15)" : "rgba(224,64,64,0.15)" })));
         chart.timeScale().fitContent();
       }).catch(() => {});
+      candleSeriesRef.current = null;
+      volumeSeriesRef.current = null;
       const ro = new ResizeObserver(() => { if (el.clientWidth > 0) chart.applyOptions({ width: el.clientWidth }); });
       ro.observe(el);
       return () => { ro.disconnect(); chart.remove(); chartInstanceRef.current = null; candleSeriesRef.current = null; volumeSeriesRef.current = null; };
@@ -132,18 +148,23 @@ export default function Dashboard() {
     }
   }, [loading, orderForm.symbol, chartInterval]);
 
+  const lastCandleRef = useRef(null);
   useEffect(() => {
     if (loading || !candleSeriesRef.current) return;
+    lastCandleRef.current = null;
     const id = setInterval(() => {
       api.tradeKlines(orderForm.symbol, chartInterval, 2).then((data) => {
         if (!candleSeriesRef.current || !data.length) return;
-        const last = data[data.length - 1];
-        candleSeriesRef.current.update({ time: last.time, open: last.open, high: last.high, low: last.low, close: last.close });
+        const c = data[data.length - 1];
+        const prev = lastCandleRef.current;
+        if (prev && prev.time === c.time && prev.open === c.open && prev.high === c.high && prev.low === c.low && prev.close === c.close) return;
+        lastCandleRef.current = c;
+        candleSeriesRef.current.update({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close });
         if (volumeSeriesRef.current) {
-          volumeSeriesRef.current.update({ time: last.time, value: last.volume, color: last.close >= last.open ? "rgba(46,203,113,0.15)" : "rgba(224,64,64,0.15)" });
+          volumeSeriesRef.current.update({ time: c.time, value: c.volume, color: c.close >= c.open ? "rgba(46,203,113,0.15)" : "rgba(224,64,64,0.15)" });
         }
       }).catch(() => {});
-    }, 1000);
+    }, 5000);
     return () => clearInterval(id);
   }, [loading, orderForm.symbol, chartInterval]);
 
@@ -219,6 +240,16 @@ export default function Dashboard() {
     } catch (err) {
       setTestnetKeysStatus({ ok: false, msg: err.message });
     }
+  };
+
+  const handleLeverage = async (val) => {
+    setLeverage(val);
+    localStorage.setItem("astraios_leverage", val);
+    setSettingLev(true);
+    try {
+      await api.tradeLeverage({ symbol: orderForm.symbol.toUpperCase(), leverage: val, testnet: !isLive });
+    } catch {}
+    setSettingLev(false);
   };
 
   const handleOrder = async (e) => {
@@ -308,7 +339,7 @@ export default function Dashboard() {
           <button
             type="button"
             className="mode-toggle"
-            onClick={() => setTradingMode((m) => m === "live" ? "paper" : "live")}
+            onClick={() => setTradingMode((m) => { const next = m === "live" ? "paper" : "live"; localStorage.setItem("astraios_mode", next); return next; })}
           >
             <span className={`mode-toggle__opt${isLive ? " active" : ""}`}>
               <span className="status-pill__dot status-pill__dot--live" aria-hidden="true" />
@@ -356,11 +387,13 @@ export default function Dashboard() {
               <section className="market-strip" aria-label="Market prices">
                 {priceTickers.map(([ticker, data]) => (
                   <div className="market-chip" key={ticker}>
-                    <span className="market-chip__ticker">{ticker}</span>
-                    <span className="market-chip__price">${fmtPrice(data.price)}</span>
-                    <span className={`market-chip__change ${data.change_pct >= 0 ? "market-chip__change--up" : "market-chip__change--down"}`}>
-                      {data.change_pct >= 0 ? "+" : ""}{data.change_pct.toFixed(2)}%
+                    <span className="market-chip__top">
+                      <span className="market-chip__ticker">{ticker}</span>
+                      <span className={`market-chip__change ${data.change_pct >= 0 ? "market-chip__change--up" : "market-chip__change--down"}`}>
+                        {data.change_pct >= 0 ? "+" : ""}{data.change_pct.toFixed(2)}%
+                      </span>
                     </span>
+                    <span className="market-chip__price">${fmtPrice(data.price)}</span>
                   </div>
                 ))}
               </section>
@@ -446,6 +479,7 @@ export default function Dashboard() {
                                 className={`symbol-option${s.symbol === orderForm.symbol ? " symbol-option--active" : ""}`}
                                 onClick={() => {
                                   setOrderForm((f) => ({ ...f, symbol: s.symbol }));
+                                  localStorage.setItem("astraios_symbol", s.symbol);
                                   setSymbolOpen(false);
                                 }}
                               >
@@ -468,7 +502,7 @@ export default function Dashboard() {
                           key={val}
                           type="button"
                           className={`interval-btn${chartInterval === val ? " active" : ""}`}
-                          onClick={() => setChartInterval(val)}
+                          onClick={() => { setChartInterval(val); localStorage.setItem("astraios_interval", val); }}
                         >{label}</button>
                       ))}
                     </div>
@@ -489,6 +523,21 @@ export default function Dashboard() {
                       className={`trade-side-btn trade-side-btn--short${orderForm.side === "Sell" ? " active" : ""}`}
                       onClick={() => setOrderForm((f) => ({ ...f, side: "Sell" }))}
                     >Short</button>
+                  </div>
+
+                  <div className="trade-field">
+                    <span className="trade-field__label">Leverage</span>
+                    <div className="leverage-selector">
+                      {["1", "2", "5", "10", "20", "50", "100"].map((val) => (
+                        <button
+                          key={val}
+                          type="button"
+                          className={`leverage-btn${leverage === val ? " active" : ""}`}
+                          onClick={() => handleLeverage(val)}
+                          disabled={settingLev}
+                        >{val}x</button>
+                      ))}
+                    </div>
                   </div>
 
                   <label className="trade-field">
@@ -647,7 +696,8 @@ export default function Dashboard() {
                   <p className="dash-empty">No signals yet. They will appear here as the engine generates them.</p>
                 ) : (
                   <>
-                    <div className="signals-table-wrap">
+                    {/* Desktop table */}
+                    <div className="signals-table-wrap sig-desktop">
                       <table className="signals-table">
                         <thead>
                           <tr>
@@ -681,6 +731,24 @@ export default function Dashboard() {
                           ))}
                         </tbody>
                       </table>
+                    </div>
+
+                    {/* Mobile cards */}
+                    <div className="sig-cards sig-mobile">
+                      {pagedSignals.map((s, i) => (
+                        <div className="sig-card" key={s.id}>
+                          <div className="sig-card__head">
+                            {signalPage === 0 && <span className="sig-card__rank">{i + 1}</span>}
+                            <span className="sig-card__ticker">{s.ticker}</span>
+                            <span className={`signal-action signal-action--${s.action.toLowerCase()}`}>{s.action}</span>
+                            <span className="sig-card__conf">{(s.confidence * 100).toFixed(0)}%</span>
+                          </div>
+                          <div className="sig-card__bar">
+                            <span className="sig-card__bar-fill" style={{ width: `${s.confidence * 100}%` }} />
+                          </div>
+                          {s.rationale && <p className="sig-card__rationale">{s.rationale}</p>}
+                        </div>
+                      ))}
                     </div>
 
                     {signalPageCount > 1 && (

@@ -162,17 +162,34 @@ async def get_symbols() -> list[dict]:
 
 async def get_klines(symbol: str, interval: str = "60", limit: int = 200) -> list[dict]:
     def _run():
-        result = _call(
-            _client().get_kline,
-            category="linear",
-            symbol=symbol,
-            interval=interval,
-            limit=limit,
-        )
+        client = _client()
+        all_rows = []
+        remaining = min(limit, 1000)
+        end_time = None
+        while remaining > 0:
+            batch = min(remaining, 200)
+            params = {"category": "linear", "symbol": symbol, "interval": interval, "limit": batch}
+            if end_time:
+                params["end"] = end_time
+            result = _call(client.get_kline, **params)
+            rows = result.get("list", [])
+            if not rows:
+                break
+            all_rows.extend(rows)
+            end_time = int(rows[-1][0]) - 1
+            remaining -= len(rows)
+            if len(rows) < batch:
+                break
+
+        seen = set()
         candles = []
-        for r in reversed(result.get("list", [])):
+        for r in reversed(all_rows):
+            ts = int(r[0]) // 1000
+            if ts in seen:
+                continue
+            seen.add(ts)
             candles.append({
-                "time": int(r[0]) // 1000,
+                "time": ts,
                 "open": float(r[1]),
                 "high": float(r[2]),
                 "low": float(r[3]),

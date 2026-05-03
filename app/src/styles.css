@@ -1668,29 +1668,37 @@ a {
 
 .market-chip {
   display: flex;
-  align-items: center;
-  gap: 0.6rem;
+  flex-direction: column;
+  gap: 0.25rem;
   flex: 1 0 auto;
   min-width: 0;
-  padding: 0.75rem 1rem;
+  padding: 0.6rem 0.85rem;
   background: var(--paper);
   white-space: nowrap;
 }
 
+.market-chip__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
 .market-chip__ticker {
   font-weight: 700;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   letter-spacing: 0.04em;
 }
 
 .market-chip__price {
   font-family: Georgia, "Times New Roman", serif;
-  font-size: 0.95rem;
+  font-size: 1rem;
+  font-weight: 500;
 }
 
 .market-chip__change {
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: 0.68rem;
+  font-weight: 700;
 }
 
 .market-chip__change--up {
@@ -1826,6 +1834,43 @@ a {
 .trade-field input::placeholder {
   color: var(--muted);
   opacity: 0.4;
+}
+
+/* Leverage selector */
+
+.leverage-selector {
+  display: flex;
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+}
+
+.leverage-btn {
+  flex: 1;
+  padding: 0.35rem 0;
+  border: none;
+  background: var(--paper);
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: color 0.1s, background 0.1s;
+}
+
+.leverage-btn:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--soft);
+}
+
+.leverage-btn.active {
+  background: var(--soft);
+  color: var(--ink);
+}
+
+.leverage-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 /* Quick size */
@@ -2513,6 +2558,75 @@ a {
   white-space: nowrap;
 }
 
+/* Signal cards (mobile) */
+
+.sig-mobile {
+  display: none;
+}
+
+.sig-cards {
+  flex-direction: column;
+  gap: 1px;
+  border: 1px solid var(--line);
+  background: var(--line);
+}
+
+.sig-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+}
+
+.sig-card__head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 0.75rem 0.4rem;
+}
+
+.sig-card__rank {
+  color: var(--muted);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 0.82rem;
+  font-weight: 500;
+  min-width: 1.2rem;
+}
+
+.sig-card__ticker {
+  font-weight: 700;
+  font-size: 0.88rem;
+  letter-spacing: 0.02em;
+}
+
+.sig-card__conf {
+  margin-left: auto;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.sig-card__bar {
+  height: 3px;
+  margin: 0 0.75rem;
+  background: var(--line);
+}
+
+.sig-card__bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--ink);
+  opacity: 0.5;
+}
+
+.sig-card__rationale {
+  margin: 0;
+  padding: 0.3rem 0.75rem 0.65rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
 /* Signals pager */
 
 .signals-pager {
@@ -2802,11 +2916,9 @@ a {
   }
 
   .market-strip {
-    flex-wrap: wrap;
-  }
-
-  .market-chip {
-    flex: 1 0 calc(50% - 1px);
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    overflow: visible;
   }
 
   .trade-layout {
@@ -2823,9 +2935,116 @@ a {
 }
 
 @media (max-width: 640px) {
+  .dash-header {
+    padding: 0 0.6rem;
+    min-height: 52px;
+    gap: 0.4rem;
+  }
+
+  .dash-header__right {
+    gap: 0.4rem;
+  }
+
+  .dash-logout {
+    padding: 0.3rem 0.5rem;
+    font-size: 0.65rem;
+  }
+
   .dash-main {
-    padding: 1.2rem 0.75rem 2.5rem;
-    gap: 1.25rem;
+    padding: 0.75rem 0.6rem 2rem;
+    gap: 1rem;
+  }
+
+  .dash-welcome {
+    gap: 0.4rem;
+  }
+
+  .dash-welcome .eyebrow {
+    font-size: 0.62rem;
+    margin-bottom: 0.1rem;
+  }
+
+  .dash-welcome h1 {
+    font-size: 1.3rem;
+  }
+
+  .dash-welcome__actions {
+    flex-direction: row;
+    gap: 0.6rem;
+  }
+
+  .refresh-btn {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.72rem;
+  }
+
+  .last-updated {
+    font-size: 0.65rem;
+  }
+
+  .market-strip {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    overflow: visible;
+  }
+
+  .market-chip {
+    padding: 0.45rem 0.5rem;
+    gap: 0.15rem;
+  }
+
+  .market-chip__ticker {
+    font-size: 0.58rem;
+  }
+
+  .market-chip__price {
+    font-size: 0.82rem;
+  }
+
+  .market-chip__change {
+    font-size: 0.58rem;
+  }
+
+  .dash-stats {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .stat-card {
+    padding: 0.7rem 0.6rem;
+    gap: 0.3rem;
+  }
+
+  .stat-card dt {
+    font-size: 0.6rem;
+  }
+
+  .stat-card dd {
+    font-size: 1.1rem;
+  }
+
+  .dash-section-head {
+    margin-bottom: 0.6rem;
+  }
+
+  .dash-section-head h2 {
+    font-size: 1rem;
+  }
+
+  .dash-section-badge {
+    font-size: 0.62rem;
+    padding: 0.2rem 0.5rem;
+  }
+
+  .keys-prompt {
+    padding: 2rem 1rem;
+  }
+
+  .keys-prompt__title {
+    font-size: 1.05rem;
+  }
+
+  .keys-prompt__text {
+    font-size: 0.8rem;
   }
 
   .trade-layout {
@@ -2904,6 +3123,14 @@ a {
     display: flex;
   }
 
+  .sig-desktop {
+    display: none;
+  }
+
+  .sig-mobile {
+    display: flex;
+  }
+
   /* API keys form stacks on mobile */
   .api-keys-form {
     grid-template-columns: 1fr;
@@ -2932,88 +3159,9 @@ a {
     text-align: center;
   }
 
-  .dash-stats {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .stat-card {
-    padding: 1rem;
-  }
-
-  .stat-card dd {
-    font-size: 1.3rem;
-  }
-
   .account-grid {
     grid-template-columns: 1fr 1fr;
-    gap: 1.2rem;
-  }
-
-  /* Convert signals table to cards */
-  .signals-table thead {
-    display: none;
-  }
-
-  .signals-table,
-  .signals-table tbody {
-    display: grid;
-    gap: 1px;
-    background: var(--line);
-    width: 100%;
-  }
-
-  .signals-table tr {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    grid-template-rows: auto auto auto;
-    gap: 0.4rem 0.8rem;
-    padding: 1rem;
-    background: var(--paper);
-  }
-
-  .signals-table .signal-ticker {
-    grid-column: 1;
-    grid-row: 1;
-    font-size: 1rem;
-    padding: 0;
-    border: 0;
-  }
-
-  .signals-table td:nth-child(2) {
-    grid-column: 2;
-    grid-row: 1;
-    justify-self: end;
-    padding: 0;
-    border: 0;
-  }
-
-  .signals-table td:nth-child(3) {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    padding: 0;
-    border: 0;
-  }
-
-  .signal-confidence {
-    width: 100%;
-  }
-
-  .signal-confidence__bar {
-    flex: 1;
-  }
-
-  .signals-table .signal-rationale {
-    grid-column: 1 / -1;
-    grid-row: 3;
-    max-width: none;
-    font-size: 0.82rem;
-    line-height: 1.5;
-    padding: 0;
-    border: 0;
-  }
-
-  .signals-table .signal-time {
-    display: none;
+    gap: 0.8rem;
   }
 
   /* Convert positions table to cards */

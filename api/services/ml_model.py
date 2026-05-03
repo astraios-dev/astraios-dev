@@ -1,13 +1,10 @@
 """
-Temporal Fusion Transformer-lite for market signal prediction.
-
-Sequence-based model: takes a window of N bars of features,
-predicts BUY (2), HOLD (1), SELL (0) for the next period.
+MarketTransformer v3: stable pure transformer with pre-norm and Xavier init.
 """
 
+import math
 import torch
 import torch.nn as nn
-import math
 
 
 class PositionalEncoding(nn.Module):
@@ -27,36 +24,42 @@ class PositionalEncoding(nn.Module):
 class MarketTransformer(nn.Module):
     def __init__(
         self,
-        n_features=25,
+        n_features=35,
         d_model=128,
         n_heads=4,
         n_layers=3,
         d_ff=256,
         n_classes=3,
-        dropout=0.1,
-        seq_len=32,
+        dropout=0.0,
+        seq_len=48,
     ):
         super().__init__()
+
         self.input_proj = nn.Linear(n_features, d_model)
-        self.pos_enc = PositionalEncoding(d_model, max_len=seq_len)
-        self.dropout = nn.Dropout(dropout)
+        self.pos_enc    = PositionalEncoding(d_model, max_len=seq_len)
+        self.dropout    = nn.Dropout(dropout)
 
         encoder_layer = nn.TransformerEncoderLayer(
-            d_model=d_model,
-            nhead=n_heads,
-            dim_feedforward=d_ff,
-            dropout=dropout,
-            batch_first=True,
-            activation="gelu",
+            d_model=d_model, nhead=n_heads, dim_feedforward=d_ff,
+            dropout=dropout, batch_first=True, activation="gelu",
+            norm_first=True,
         )
         self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=n_layers)
-        self.norm = nn.LayerNorm(d_model)
-        self.head = nn.Sequential(
+        self.norm    = nn.LayerNorm(d_model)
+        self.head    = nn.Sequential(
             nn.Linear(d_model, d_ff),
             nn.GELU(),
             nn.Dropout(dropout),
             nn.Linear(d_ff, n_classes),
         )
+        self._init_weights()
+
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight, gain=0.5)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
 
     def forward(self, x):
         x = self.input_proj(x)
