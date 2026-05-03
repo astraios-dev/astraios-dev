@@ -69,6 +69,7 @@ def main():
         "n-layers": "4",
         "d-ff": "512",
         "dropout": "0.25",
+        "val-months": "4",
     }
 
     sm.create_training_job(

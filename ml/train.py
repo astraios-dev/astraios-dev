@@ -110,28 +110,28 @@ class MarketTransformer(nn.Module):
         return self.head(x)
 
 
-def walk_forward_split(features, labels, symbols, n_folds=5):
-    """5-fold walk-forward: train on first k folds, validate on k+1."""
-    unique = np.unique(symbols)
-    folds = []
-    for sym in unique:
-        mask = symbols == sym
-        sym_f = features[mask]
-        sym_l = labels[mask]
-        fold_size = len(sym_f) // n_folds
-        if fold_size < 50:
-            # Not enough data for walk-forward; use 80/20
-            split = int(len(sym_f) * 0.8)
-            folds.append((sym_f[:split], sym_l[:split], sym_f[split:], sym_l[split:]))
-        else:
-            # Use first 80% for train, last 20% for val
-            split = fold_size * (n_folds - 1)
-            folds.append((sym_f[:split], sym_l[:split], sym_f[split:], sym_l[split:]))
+def time_based_split(features, labels, timestamps, val_months=4):
+    """
+    True temporal split: train on all data before cutoff, validate on after.
 
-    train_x = np.concatenate([f[0] for f in folds])
-    train_y = np.concatenate([f[1] for f in folds])
-    val_x   = np.concatenate([f[2] for f in folds])
-    val_y   = np.concatenate([f[3] for f in folds])
+    val_months controls how much recent history goes to validation.
+    This forces the model to generalise across time rather than memorise
+    patterns that appear in both train and val within the same regime.
+    """
+    import datetime
+    cutoff_dt = datetime.datetime.utcnow() - datetime.timedelta(days=val_months * 30)
+    cutoff_ms = int(cutoff_dt.timestamp() * 1000)
+
+    train_mask = timestamps < cutoff_ms
+    val_mask   = timestamps >= cutoff_ms
+
+    train_x = features[train_mask]
+    train_y = labels[train_mask]
+    val_x   = features[val_mask]
+    val_y   = labels[val_mask]
+
+    print(f"Time split: train < {cutoff_dt.date()} ({train_mask.sum():,}), "
+          f"val >= {cutoff_dt.date()} ({val_mask.sum():,})")
     return train_x, train_y, val_x, val_y
 
 
@@ -149,17 +149,33 @@ def train(args):
             df[col] = 0.0
 
     df = df.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    # Sort globally by timestamp so time split is correct
+    if "timestamp" in df.columns:
+        df = df.sort_values("timestamp").reset_index(drop=True)
 
-    features = df[FEATURE_COLS].values.astype(np.float32)
-    labels   = df["label"].values.astype(np.int64)
-    symbols  = df["symbol"].values if "symbol" in df.columns else np.array(["unknown"] * len(df))
+    features   = df[FEATURE_COLS].values.astype(np.float32)
+    labels     = df["label"].values.astype(np.int64)
+    timestamps = df["timestamp"].values if "timestamp" in df.columns else np.zeros(len(df), dtype=np.int64)
 
-    scaler   = StandardScaler()
-    features = scaler.fit_transform(features)
-    features = np.clip(features, -5.0, 5.0)  # clip outliers after scaling
+    # Time-based split first (before fitting scaler to avoid leakage)
+    import datetime
+    val_months = args.val_months
+    cutoff_dt = datetime.datetime.utcnow() - datetime.timedelta(days=val_months * 30)
+    cutoff_ms = int(cutoff_dt.timestamp() * 1000)
+    train_mask = timestamps < cutoff_ms
+    val_mask   = timestamps >= cutoff_ms
+    print(f"Time split: train < {cutoff_dt.date()} ({train_mask.sum():,}), "
+          f"val >= {cutoff_dt.date()} ({val_mask.sum():,})")
 
-    train_x, train_y, val_x, val_y = walk_forward_split(features, labels, symbols)
-    print(f"Train: {len(train_x)}, Val: {len(val_x)}")
+    # Fit scaler ONLY on training data — no val leakage
+    scaler = StandardScaler()
+    scaler.fit(features[train_mask])
+    features = scaler.transform(features)
+    features = np.clip(features, -5.0, 5.0)
+
+    train_x, train_y = features[train_mask], labels[train_mask]
+    val_x,   val_y   = features[val_mask],   labels[val_mask]
+    print(f"Train: {len(train_x):,}, Val: {len(val_x):,}")
 
     train_ds = SequenceDataset(train_x, train_y, seq_len=args.seq_len)
     val_ds   = SequenceDataset(val_x, val_y, seq_len=args.seq_len)
@@ -269,6 +285,7 @@ if __name__ == "__main__":
     parser.add_argument("--n-layers",   type=int,   default=4)
     parser.add_argument("--d-ff",       type=int,   default=512)
     parser.add_argument("--dropout",    type=float, default=0.25)
+    parser.add_argument("--val-months", type=int,   default=4)
     parser.add_argument("--data-dir",   type=str,   default=os.environ.get("SM_CHANNEL_TRAINING", "ml"))
     parser.add_argument("--model-dir",  type=str,   default=os.environ.get("SM_MODEL_DIR", "ml/output"))
     args = parser.parse_args()
