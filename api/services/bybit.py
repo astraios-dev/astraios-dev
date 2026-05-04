@@ -1,15 +1,18 @@
 import asyncio
 from pybit.unified_trading import HTTP
 from api.config import settings
+from api.services.crypto import decrypt_key
 
 
-def _client(api_key: str | None = None, api_secret: str | None = None, testnet: bool = False) -> HTTP:
-    key = api_key or settings.bybit_api_key
-    secret = api_secret or settings.bybit_api_secret
+def _client(api_key: str | None = None, api_secret: str | None = None,
+            testnet: bool = False, demo: bool = False) -> HTTP:
+    key = decrypt_key(api_key) or settings.bybit_api_key
+    secret = decrypt_key(api_secret) or settings.bybit_api_secret
     client = HTTP(
         api_key=key if key else None,
         api_secret=secret if secret else None,
         testnet=testnet,
+        demo=demo,
     )
     if settings.bybit_proxy:
         client.client.proxies = {
@@ -19,13 +22,19 @@ def _client(api_key: str | None = None, api_secret: str | None = None, testnet: 
     return client
 
 
-def _auth_client(api_key: str | None = None, api_secret: str | None = None, testnet: bool = False) -> HTTP:
+def _auth_client(api_key: str | None = None, api_secret: str | None = None,
+                 testnet: bool = False, demo: bool = False) -> HTTP:
     key = api_key or settings.bybit_api_key
     secret = api_secret or settings.bybit_api_secret
     if not key or not secret:
-        msg = "No Bybit testnet keys configured. Add them in Account settings." if testnet else "No Bybit API keys configured. Add them in Account settings."
+        if demo:
+            msg = "No Bybit demo keys configured. Add them in Account settings."
+        elif testnet:
+            msg = "No Bybit testnet keys configured. Add them in Account settings."
+        else:
+            msg = "No Bybit API keys configured. Add them in Account settings."
         raise RuntimeError(msg)
-    return _client(key, secret, testnet=testnet)
+    return _client(key, secret, testnet=testnet, demo=demo)
 
 
 def _call(fn, **kwargs):
@@ -35,12 +44,12 @@ def _call(fn, **kwargs):
     return resp["result"]
 
 
-async def get_positions(symbol: str | None = None, api_key: str | None = None, api_secret: str | None = None, testnet: bool = False) -> list[dict]:
+async def get_positions(symbol: str | None = None, api_key: str | None = None, api_secret: str | None = None, testnet: bool = False, demo: bool = False) -> list[dict]:
     def _run():
         params = {"category": "linear", "settleCoin": "USDT"}
         if symbol:
             params["symbol"] = symbol
-        result = _call(_auth_client(api_key, api_secret, testnet).get_positions, **params)
+        result = _call(_auth_client(api_key, api_secret, testnet, demo).get_positions, **params)
         positions = []
         for p in result.get("list", []):
             size = float(p.get("size", 0))
@@ -75,6 +84,7 @@ async def place_order(
     api_key: str | None = None,
     api_secret: str | None = None,
     testnet: bool = False,
+    demo: bool = False,
 ) -> dict:
     def _run():
         params = {
@@ -89,7 +99,7 @@ async def place_order(
             params["takeProfit"] = tp
         if sl:
             params["stopLoss"] = sl
-        result = _call(_auth_client(api_key, api_secret, testnet).place_order, **params)
+        result = _call(_auth_client(api_key, api_secret, testnet, demo).place_order, **params)
         return {
             "order_id": result.get("orderId", ""),
             "order_link_id": result.get("orderLinkId", ""),
@@ -98,9 +108,9 @@ async def place_order(
     return await asyncio.to_thread(_run)
 
 
-async def close_position(symbol: str, side: str, qty: str, api_key: str | None = None, api_secret: str | None = None, testnet: bool = False) -> dict:
+async def close_position(symbol: str, side: str, qty: str, api_key: str | None = None, api_secret: str | None = None, testnet: bool = False, demo: bool = False) -> dict:
     close_side = "Sell" if side == "Buy" else "Buy"
-    return await place_order(symbol=symbol, side=close_side, qty=qty, api_key=api_key, api_secret=api_secret, testnet=testnet)
+    return await place_order(symbol=symbol, side=close_side, qty=qty, api_key=api_key, api_secret=api_secret, testnet=testnet, demo=demo)
 
 
 async def get_open_orders(symbol: str | None = None, api_key: str | None = None, api_secret: str | None = None, testnet: bool = False) -> list[dict]:
@@ -126,9 +136,9 @@ async def get_open_orders(symbol: str | None = None, api_key: str | None = None,
     return await asyncio.to_thread(_run)
 
 
-async def get_wallet_balance(api_key: str | None = None, api_secret: str | None = None, testnet: bool = False) -> dict:
+async def get_wallet_balance(api_key: str | None = None, api_secret: str | None = None, testnet: bool = False, demo: bool = False) -> dict:
     def _run():
-        result = _call(_auth_client(api_key, api_secret, testnet).get_wallet_balance, accountType="UNIFIED")
+        result = _call(_auth_client(api_key, api_secret, testnet, demo).get_wallet_balance, accountType="UNIFIED")
         acct = result.get("list", [{}])[0]
         return {
             "equity": acct.get("totalEquity", "0"),
@@ -201,15 +211,42 @@ async def get_klines(symbol: str, interval: str = "60", limit: int = 200) -> lis
     return await asyncio.to_thread(_run)
 
 
-async def set_leverage(symbol: str, leverage: str, api_key: str | None = None, api_secret: str | None = None, testnet: bool = False) -> dict:
+async def set_leverage(symbol: str, leverage: str, api_key: str | None = None, api_secret: str | None = None, testnet: bool = False, demo: bool = False) -> dict:
     def _run():
         result = _call(
-            _auth_client(api_key, api_secret, testnet).set_leverage,
+            _auth_client(api_key, api_secret, testnet, demo).set_leverage,
             category="linear",
             symbol=symbol,
             buyLeverage=leverage,
             sellLeverage=leverage,
         )
         return {"status": "ok"}
+
+    return await asyncio.to_thread(_run)
+
+
+async def get_closed_pnl(limit: int = 50, api_key: str | None = None, api_secret: str | None = None, testnet: bool = False, demo: bool = False) -> list[dict]:
+    def _run():
+        result = _call(
+            _auth_client(api_key, api_secret, testnet, demo).get_closed_pnl,
+            category="linear",
+            limit=limit,
+        )
+        trades = []
+        for t in result.get("list", []):
+            pnl = float(t.get("closedPnl", 0))
+            trades.append({
+                "symbol": t.get("symbol", ""),
+                "side": t.get("side", ""),
+                "qty": t.get("qty", "0"),
+                "entry_price": float(t.get("avgEntryPrice", 0)),
+                "exit_price": float(t.get("avgExitPrice", 0)),
+                "pnl": round(pnl, 4),
+                "created_time": t.get("createdTime", ""),
+                "updated_time": t.get("updatedTime", ""),
+            })
+        return trades
+
+    return await asyncio.to_thread(_run)
 
     return await asyncio.to_thread(_run)

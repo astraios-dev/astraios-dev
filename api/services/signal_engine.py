@@ -16,29 +16,40 @@ from api.config import settings
 MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../..", "ml", "output")
 
 SYMBOLS = [
-    "BTCUSDT", "ETHUSDT", "SOLUSDT", "SUIUSDT",
-    "DOGEUSDT", "XRPUSDT", "LINKUSDT", "AAVEUSDT",
-    "1000PEPEUSDT", "WIFUSDT", "ARBUSDT", "AVAXUSDT",
+    # Tier 1 — strong model edge (57–59% val acc), auto-trade defaults
+    "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT",
+    "DOGEUSDT", "LTCUSDT", "TRXUSDT", "XRPUSDT",
+    # Tier 2 — moderate edge (55–57%), signals shown but not auto-traded by default
+    "AVAXUSDT", "LINKUSDT", "ADAUSDT", "DOTUSDT",
+    "MATICUSDT", "AAVEUSDT",
+    # Tier 3 — below baseline, signals informational only
+    "SUIUSDT", "ARBUSDT", "1000PEPEUSDT", "WIFUSDT",
+    "NEARUSDT", "INJUSDT",
+    # FTMUSDT excluded — model overfit (100% acc / 0% directional), unreliable
 ]
 
 FEATURE_COLS = [
-    "returns", "log_returns",
-    "ema_ratio_8", "ema_ratio_21", "ema_ratio_50", "ema_cross_8_21",
-    "rsi_14", "rsi_7",
-    "macd", "macd_signal", "macd_hist",
-    "bb_pct", "atr_norm",
-    "vol_ratio",
-    "ret_lag_1", "ret_lag_2", "ret_lag_3", "ret_lag_5",
-    "mom_5", "mom_10", "mom_20",
-    "high_low_range", "close_position",
+    "returns",
+    "ema_ratio_8", "ema_ratio_21", "ema_ratio_50",
+    "close_position",
+    "rsi_14",
+    "macd_hist",
+    "bb_pct",
+    "mom_20",
+    "atr_norm",
     "rolling_vol_5", "rolling_vol_20",
-    "taker_buy_ratio", "taker_buy_ma8", "taker_buy_delta", "taker_buy_pressure",
-    "funding_rate", "funding_rate_ma8", "funding_rate_std8", "funding_cumulative",
-    "oi_change", "oi_ratio", "oi_price_div",
-    "long_short_ratio", "ls_ma8", "ls_change",
+    "vol_ratio",
+    "taker_buy_ratio", "taker_buy_pressure",
+    "ret_lag_1", "ret_lag_3",
+    "funding_rate", "funding_rate_ma8",
+    "btc_returns", "btc_mom_5",
+    "btc_vol_ratio", "btc_trend",
+    "vol_regime", "trend_strength", "price_vs_sma200",
+    "btc_corr_20", "funding_divergence",
 ]
 
-LABEL_MAP = {0: "SELL", 1: "HOLD", 2: "BUY"}
+LABEL_MAP_2 = {0: "SELL", 1: "BUY"}
+LABEL_MAP_3 = {0: "SELL", 1: "HOLD", 2: "BUY"}
 
 _model = None
 _config = None
@@ -243,12 +254,59 @@ def _feats_to_matrix(feats):
 
 
 def _predict_symbol(closes, highs, lows, volumes, taker_buy_ratios=None,
-                    funding_rates=None, open_interests=None, ls_ratios=None, seq_len=32):
+                    funding_rates=None, open_interests=None, ls_ratios=None,
+                    btc_returns=None, btc_mom_5=None,
+                    btc_vol_ratio=None, btc_trend=None, btc_funding=None,
+                    seq_len=32):
     import torch
 
     n = len(closes)
     feats = _engineer(closes, highs, lows, volumes, taker_buy_ratios)
     feats = _add_market_microstructure(feats, funding_rates, open_interests, ls_ratios, n)
+
+    def _align(arr, n, fill):
+        if arr is not None and len(arr) > 0:
+            a = np.array(arr, dtype=np.float32)
+            if len(a) >= n:
+                return a[-n:]
+            return np.concatenate([np.full(n - len(a), fill, dtype=np.float32), a])
+        return np.full(n, fill, dtype=np.float32)
+
+    feats["btc_returns"]   = _align(btc_returns, n, 0.0)
+    feats["btc_mom_5"]     = _align(btc_mom_5, n, 0.0)
+    feats["btc_vol_ratio"] = _align(btc_vol_ratio, n, 1.0)
+    feats["btc_trend"]     = _align(btc_trend, n, 0.0)
+
+    # Regime features from engineered data
+    ret = feats["returns"]
+    rv5  = np.array([np.std(ret[max(0,i-4):i+1]) for i in range(n)], dtype=np.float32)
+    rv20 = np.array([np.std(ret[max(0,i-19):i+1]) for i in range(n)], dtype=np.float32)
+    feats["vol_regime"] = np.clip(rv5 / np.maximum(rv20, 1e-9), 0, 5)
+
+    ema50 = feats.get("ema_50", np.full(n, closes[-1]))
+    atr14 = feats.get("atr_14", np.ones(n))
+    slope = np.concatenate([[0.0]*5, (ema50[5:] - ema50[:-5]) / np.maximum(atr14[5:], 1e-9)])
+    feats["trend_strength"] = np.clip(slope, -5, 5)
+
+    sma200 = np.array([np.mean(closes[max(0,i-199):i+1]) for i in range(n)], dtype=np.float32)
+    feats["price_vs_sma200"] = np.clip((closes - sma200) / np.maximum(sma200, 1e-9), -1, 1)
+
+    # Rolling correlation with BTC
+    btc_ret = _align(btc_returns, n, 0.0)
+    sym_ret = ret
+    corr = np.zeros(n, dtype=np.float32)
+    for i in range(20, n):
+        s = sym_ret[i-20:i]; b = btc_ret[i-20:i]
+        ss, sb = np.std(s), np.std(b)
+        if ss > 0 and sb > 0:
+            corr[i] = float(np.corrcoef(s, b)[0, 1])
+    feats["btc_corr_20"] = corr
+
+    # Funding divergence: symbol funding - BTC funding
+    sym_fr = feats.get("funding_rate", np.zeros(n))
+    btc_fr = _align(btc_funding, n, 0.0)
+    feats["funding_divergence"] = sym_fr - btc_fr
+
     feat_matrix = _feats_to_matrix(feats)
     feat_matrix = np.nan_to_num(feat_matrix, nan=0.0, posinf=0.0, neginf=0.0)
 
@@ -266,6 +324,13 @@ def _predict_symbol(closes, highs, lows, volumes, taker_buy_ratios=None,
 
     pred_class = int(np.argmax(probs))
     confidence = float(probs[pred_class])
+
+    # Confidence gate: require margin |p_buy - p_sell| > 0.10
+    # Below this threshold the model has no real edge — emit as HOLD equiv
+    if _config.get("n_classes") == 2:
+        margin = abs(float(probs[1]) - float(probs[0]))
+        if margin < 0.10:
+            return None  # caller will skip or fall back to heuristic
 
     return pred_class, confidence, probs
 
@@ -303,6 +368,37 @@ async def generate_signals(symbols=None):
         if settings.bybit_proxy:
             client.client.proxies = {"http": settings.bybit_proxy, "https": settings.bybit_proxy}
 
+        # Fetch BTC klines + funding once for cross-asset features
+        btc_returns_arr = btc_mom5_arr = btc_vol_ratio_arr = btc_trend_arr = btc_funding_arr = None
+        try:
+            btc_resp = client.get_kline(category="linear", symbol="BTCUSDT", interval="60", limit=200)
+            if btc_resp["retCode"] == 0:
+                btc_rows = list(reversed(btc_resp["result"]["list"]))
+                btc_closes = np.array([float(r[4]) for r in btc_rows], dtype=np.float32)
+                btc_ret = np.concatenate([[0], np.diff(btc_closes) / btc_closes[:-1]])
+                btc_returns_arr = btc_ret
+                btc_shifted = np.concatenate([np.full(5, btc_closes[0]), btc_closes[:-5]])
+                btc_mom5_arr = btc_closes / np.maximum(btc_shifted, 1e-9) - 1
+                # vol_ratio: 5-bar / 20-bar realised vol
+                rv5  = np.array([np.std(btc_ret[max(0,i-4):i+1]) for i in range(len(btc_ret))])
+                rv20 = np.array([np.std(btc_ret[max(0,i-19):i+1]) for i in range(len(btc_ret))])
+                btc_vol_ratio_arr = np.clip(rv5 / np.maximum(rv20, 1e-9), 0, 5).astype(np.float32)
+                # trend: sign(close - ema50)
+                btc_ema50 = btc_closes.copy()
+                alpha = 2 / 51
+                for i in range(1, len(btc_closes)):
+                    btc_ema50[i] = alpha * btc_closes[i] + (1 - alpha) * btc_ema50[i-1]
+                btc_trend_arr = np.sign(btc_closes - btc_ema50).astype(np.float32)
+        except Exception:
+            pass
+        # BTC funding rates
+        try:
+            btc_fr_resp = client.get_funding_rate_history(category="linear", symbol="BTCUSDT", limit=50)
+            if btc_fr_resp["retCode"] == 0 and btc_fr_resp["result"]["list"]:
+                btc_funding_arr = [float(r["fundingRate"]) for r in reversed(btc_fr_resp["result"]["list"])]
+        except Exception:
+            pass
+
         results = []
         for sym in symbols:
             try:
@@ -314,7 +410,6 @@ async def generate_signals(symbols=None):
                 highs   = np.array([float(r[2]) for r in rows], dtype=np.float32)
                 lows    = np.array([float(r[3]) for r in rows], dtype=np.float32)
                 volumes = np.array([float(r[5]) for r in rows], dtype=np.float32)
-                # Bybit klines don't include taker buy volume — use neutral 0.5
                 taker_buy_ratios = None
 
                 # Fetch funding rates (public endpoint)
@@ -326,43 +421,31 @@ async def generate_signals(symbols=None):
                 except Exception:
                     pass
 
-                # Open interest
-                open_interests = None
-                try:
-                    oi_resp = client.get_open_interest(category="linear", symbol=sym, intervalTime="1h", limit=200)
-                    if oi_resp["retCode"] == 0 and oi_resp["result"]["list"]:
-                        open_interests = [float(r["openInterest"]) for r in reversed(oi_resp["result"]["list"])]
-                except Exception:
-                    pass
-
-                # Long/short ratio
-                ls_ratios = None
-                try:
-                    ls_resp = client.get_long_short_ratio(category="linear", symbol=sym, period="1h", limit=200)
-                    if ls_resp["retCode"] == 0 and ls_resp["result"]["list"]:
-                        ls_ratios = [float(r["buyRatio"]) / max(float(r["sellRatio"]), 1e-9)
-                                     for r in reversed(ls_resp["result"]["list"])]
-                except Exception:
-                    pass
-
                 if model_ready:
                     result = _predict_symbol(closes, highs, lows, volumes,
                                              taker_buy_ratios, funding_rates,
-                                             open_interests, ls_ratios,
+                                             None, None,
+                                             btc_returns_arr, btc_mom5_arr,
+                                             btc_vol_ratio_arr, btc_trend_arr, btc_funding_arr,
                                              _config["seq_len"])
                     if result is None:
                         continue
                     pred_class, confidence, probs = result
-                    action = LABEL_MAP[pred_class]
+                    label_map = LABEL_MAP_2 if _config["n_classes"] == 2 else LABEL_MAP_3
+                    action = label_map[pred_class]
 
-                    sell_p, hold_p, buy_p = probs[0], probs[1], probs[2]
                     rationale_parts = [f"Transformer: {action} ({confidence:.0%} conf)"]
-                    if action == "BUY":
-                        rationale_parts.append(f"buy_p={buy_p:.2f} vs hold_p={hold_p:.2f}")
-                    elif action == "SELL":
-                        rationale_parts.append(f"sell_p={sell_p:.2f} vs hold_p={hold_p:.2f}")
+                    if _config["n_classes"] == 2:
+                        sell_p, buy_p = probs[0], probs[1]
+                        rationale_parts.append(f"buy_p={buy_p:.2f} sell_p={sell_p:.2f}")
                     else:
-                        rationale_parts.append("no clear directional edge")
+                        sell_p, hold_p, buy_p = probs[0], probs[1], probs[2]
+                        if action == "BUY":
+                            rationale_parts.append(f"buy_p={buy_p:.2f} vs hold_p={hold_p:.2f}")
+                        elif action == "SELL":
+                            rationale_parts.append(f"sell_p={sell_p:.2f} vs hold_p={hold_p:.2f}")
+                        else:
+                            rationale_parts.append("no clear directional edge")
 
                     rsi_val = _rsi(closes)
                     if rsi_val > 70:

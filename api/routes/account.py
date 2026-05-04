@@ -8,6 +8,7 @@ from api.models.user import User
 from api.models.signal import Signal
 from api.models.position import Position
 from api.services.auth import get_current_user
+from api.services.crypto import encrypt_key
 
 router = APIRouter(prefix="/account", tags=["account"])
 
@@ -46,8 +47,8 @@ async def account_stats(
         "api_access": True,
         "has_api_keys": bool(user.bybit_api_key),
         "api_key_hint": f"...{user.bybit_api_key[-4:]}" if user.bybit_api_key else None,
-        "has_testnet_keys": bool(user.bybit_testnet_key),
-        "testnet_key_hint": f"...{user.bybit_testnet_key[-4:]}" if user.bybit_testnet_key else None,
+        "has_demo_keys": bool(user.bybit_testnet_key),
+        "demo_key_hint": f"...{user.bybit_testnet_key[-4:]}" if user.bybit_testnet_key else None,
         "total_signals": signal_count,
         "open_positions": position_count,
         "portfolio_value": round(portfolio_value, 2),
@@ -61,8 +62,8 @@ async def save_api_keys(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    user.bybit_api_key = body.bybit_api_key
-    user.bybit_api_secret = body.bybit_api_secret
+    user.bybit_api_key = encrypt_key(body.bybit_api_key)
+    user.bybit_api_secret = encrypt_key(body.bybit_api_secret)
     await db.commit()
     return {"status": "ok", "api_key_hint": f"...{body.bybit_api_key[-4:]}"}
 
@@ -84,8 +85,8 @@ async def save_testnet_keys(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    user.bybit_testnet_key = body.bybit_api_key
-    user.bybit_testnet_secret = body.bybit_api_secret
+    user.bybit_testnet_key = encrypt_key(body.bybit_api_key)
+    user.bybit_testnet_secret = encrypt_key(body.bybit_api_secret)
     await db.commit()
     return {"status": "ok", "testnet_key_hint": f"...{body.bybit_api_key[-4:]}"}
 

@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     bybit_api_secret: str = ""
     bybit_proxy: str = ""
 
+    fernet_key: str = ""
+    allowed_origins: str = "https://astraios.tech,http://localhost:5173"
+
     model_config = {"env_file": str(Path(__file__).resolve().parent.parent / ".env")}
 
 

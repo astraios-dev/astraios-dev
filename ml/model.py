@@ -1,9 +1,6 @@
 """
-MarketTransformer v2: CNN front-end + Transformer encoder.
-
-- CNN extracts local patterns (3 and 5 bar windows)
-- Transformer encoder captures long-range temporal dependencies
-- Dual-head readout: last token + mean pooling
+MarketTransformer v4: CNN front-end + Transformer encoder.
+Mirrors api/services/ml_model.py and ml/train.py — keep in sync.
 """
 
 import math
@@ -28,51 +25,55 @@ class PositionalEncoding(nn.Module):
 class MarketTransformer(nn.Module):
     def __init__(
         self,
-        n_features=34,
-        d_model=256,
-        n_heads=8,
-        n_layers=4,
-        d_ff=512,
-        n_classes=3,
-        dropout=0.1,
+        n_features=28,
+        d_model=64,
+        n_heads=2,
+        n_layers=2,
+        d_ff=128,
+        n_classes=2,
+        dropout=0.15,
         seq_len=48,
     ):
         super().__init__()
 
-        self.cnn = nn.Sequential(
-            nn.Conv1d(n_features, d_model // 2, kernel_size=3, padding=1),
-            nn.GELU(),
-            nn.Conv1d(d_model // 2, d_model, kernel_size=5, padding=2),
-            nn.GELU(),
-        )
+        cnn_out = d_model // 3
+        self.cnn3 = nn.Sequential(nn.Conv1d(n_features, cnn_out, kernel_size=3, padding=1), nn.GELU())
+        self.cnn5 = nn.Sequential(nn.Conv1d(n_features, cnn_out, kernel_size=5, padding=2), nn.GELU())
+        self.cnn7 = nn.Sequential(nn.Conv1d(n_features, d_model - 2 * cnn_out, kernel_size=7, padding=3), nn.GELU())
 
         self.pos_enc = PositionalEncoding(d_model, max_len=seq_len)
         self.dropout = nn.Dropout(dropout)
 
         encoder_layer = nn.TransformerEncoderLayer(
-            d_model=d_model,
-            nhead=n_heads,
-            dim_feedforward=d_ff,
-            dropout=dropout,
-            batch_first=True,
-            activation="gelu",
+            d_model=d_model, nhead=n_heads, dim_feedforward=d_ff,
+            dropout=dropout, batch_first=True, activation="gelu",
+            norm_first=True,
         )
         self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=n_layers)
-        self.norm = nn.LayerNorm(d_model)
-
-        self.head = nn.Sequential(
-            nn.Linear(d_model * 2, d_ff),
+        self.norm    = nn.LayerNorm(d_model)
+        self.head    = nn.Sequential(
+            nn.Linear(d_model, d_ff),
             nn.GELU(),
             nn.Dropout(dropout),
             nn.Linear(d_ff, n_classes),
         )
+        self._init_weights()
+
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, (nn.Linear, nn.Conv1d)):
+                nn.init.xavier_uniform_(m.weight, gain=0.5)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
 
     def forward(self, x):
-        x = self.cnn(x.transpose(1, 2)).transpose(1, 2)
+        xT = x.transpose(1, 2)
+        x3 = self.cnn3(xT)
+        x5 = self.cnn5(xT)
+        x7 = self.cnn7(xT)
+        x = torch.cat([x3, x5, x7], dim=1).transpose(1, 2)
         x = self.pos_enc(x)
         x = self.dropout(x)
         x = self.encoder(x)
-        x = self.norm(x)
-        last_token = x[:, -1, :]
-        mean_pool  = x.mean(dim=1)
-        return self.head(torch.cat([last_token, mean_pool], dim=-1))
+        x = self.norm(x[:, -1, :])
+        return self.head(x)

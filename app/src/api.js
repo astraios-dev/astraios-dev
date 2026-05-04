@@ -46,10 +46,16 @@ export const api = {
   tradeSymbols: () => apiFetch("/trade/symbols"),
   tradeKlines: (symbol, interval = "60", limit = 1000) =>
     apiFetch(`/trade/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`),
-  tradePositions: (symbol, testnet = false) => apiFetch(`/trade/positions?testnet=${testnet}${symbol ? `&symbol=${symbol}` : ""}`),
-  tradeOrders: (symbol, testnet = false) => apiFetch(`/trade/orders?testnet=${testnet}${symbol ? `&symbol=${symbol}` : ""}`),
-  tradeWallet: (testnet = false) => apiFetch(`/trade/wallet?testnet=${testnet}`),
+  tradePositions: (symbol, demo = false) => apiFetch(`/trade/positions?demo=${demo}${symbol ? `&symbol=${symbol}` : ""}`),
+  tradeOrders: (symbol, demo = false) => apiFetch(`/trade/orders?demo=${demo}${symbol ? `&symbol=${symbol}` : ""}`),
+  tradeWallet: (demo = false) => apiFetch(`/trade/wallet?demo=${demo}`),
   tradeOrder: (body) => apiFetch("/trade/order", { method: "POST", body: JSON.stringify(body) }),
   tradeClose: (body) => apiFetch("/trade/close", { method: "POST", body: JSON.stringify(body) }),
   tradeLeverage: (body) => apiFetch("/trade/leverage", { method: "POST", body: JSON.stringify(body) }),
+
+  autoTradeConfig: () => apiFetch("/auto-trade/config"),
+  saveAutoTradeConfig: (body) => apiFetch("/auto-trade/config", { method: "POST", body: JSON.stringify(body) }),
+  autoTradeStats: () => apiFetch("/auto-trade/stats"),
+  autoTradePnl: (demo = false) => apiFetch(`/auto-trade/pnl?demo=${demo}&limit=100`),
+  autoTradeLog: (limit = 50) => apiFetch(`/auto-trade/log?limit=${limit}`),
 };

@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 
 from api.db import Base
-from api.models import User, Signal, Position  # noqa: F401
+from api.models import User, Signal, Position, AutoTradeConfig, AutoTradeLog  # noqa: F401
 
 config = context.config
 

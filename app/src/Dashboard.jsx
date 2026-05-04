@@ -37,6 +37,7 @@ export default function Dashboard() {
   });
   const [tradingMode, setTradingMode] = useState(() => localStorage.getItem("astraios_mode") || "live");
   const isLive = tradingMode === "live";
+  const isDemo = !isLive;
   const [keysForm, setKeysForm] = useState({ apiKey: "", apiSecret: "" });
   const [keysStatus, setKeysStatus] = useState(null);
   const [savingKeys, setSavingKeys] = useState(false);
@@ -48,6 +49,21 @@ export default function Dashboard() {
   const [orderStatus, setOrderStatus] = useState(null);
   const [ordering, setOrdering] = useState(false);
   const [closing, setClosing] = useState(null);
+
+  const [autoConfig, setAutoConfig] = useState(null);
+  const [autoConfigForm, setAutoConfigForm] = useState(null);
+  const [autoStats, setAutoStats] = useState(null);
+  const [autoPnl, setAutoPnl] = useState(null);
+  const [autoLog, setAutoLog] = useState([]);
+  const [savingAuto, setSavingAuto] = useState(false);
+  const [autoStatus, setAutoStatus] = useState(null);
+  const [showAutoLog, setShowAutoLog] = useState(false);
+
+  // Sync auto-trade mode with global toggle: Demo mode → auto-trade demo on, Live → keep current
+  useEffect(() => {
+    if (!autoConfigForm) return;
+    if (isDemo) setAutoConfigForm((f) => ({ ...f, demo: true }));
+  }, [isDemo]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadData = useCallback(() => {
     return Promise.all([
@@ -64,25 +80,40 @@ export default function Dashboard() {
     });
   }, []);
 
+  // Stable ref to current mode — readable inside async callbacks without stale closure
+  const tradingModeRef = useRef(tradingMode);
+  useEffect(() => { tradingModeRef.current = tradingMode; }, [tradingMode]);
+
   const loadBybit = useCallback(() => {
-    setBybitError(null);
-    const testnet = !isLive;
+    const modeAtCall = tradingModeRef.current;
+    const demo = modeAtCall !== "live";
     return Promise.all([
-      api.tradePositions(null, testnet),
-      api.tradeWallet(testnet),
+      api.tradePositions(null, demo),
+      api.tradeWallet(demo),
     ]).then(([bp, w]) => {
+      // Discard if mode changed while this request was in flight
+      if (tradingModeRef.current !== modeAtCall) return;
       setBybitPositions(bp);
       setWallet(w);
+      setBybitError(null);
     }).catch((e) => {
+      if (tradingModeRef.current !== modeAtCall) return;
       setBybitPositions([]);
       setWallet(null);
       setBybitError(e.message);
     });
-  }, [isLive]);
+  }, []);
 
   useEffect(() => {
     api.tradeSymbols().then(setAllSymbols).catch(() => {});
     api.modelInfo().then(setModelInfo).catch(() => {});
+    api.autoTradeConfig().then((cfg) => {
+      setAutoConfig(cfg);
+      setAutoConfigForm(cfg);
+      api.autoTradePnl(cfg?.demo ?? true).then(setAutoPnl).catch(() => {});
+    }).catch(() => {});
+    api.autoTradeStats().then(setAutoStats).catch(() => {});
+    api.autoTradeLog().then(setAutoLog).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -164,7 +195,7 @@ export default function Dashboard() {
           volumeSeriesRef.current.update({ time: c.time, value: c.volume, color: c.close >= c.open ? "rgba(46,203,113,0.15)" : "rgba(224,64,64,0.15)" });
         }
       }).catch(() => {});
-    }, 5000);
+    }, 1000);
     return () => clearInterval(id);
   }, [loading, orderForm.symbol, chartInterval]);
 
@@ -174,10 +205,19 @@ export default function Dashboard() {
       .finally(() => setLoading(false));
   }, [loadData, loadBybit]);
 
+  // Clear stale data instantly on mode switch, then load fresh
   useEffect(() => {
-    const id = setInterval(() => { loadBybit(); }, 5000);
+    setBybitPositions([]);
+    setWallet(null);
+    setBybitError(null);
+    loadBybit().catch(() => {});
+  }, [isLive]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Polling: single stable interval — loadBybit reads mode from ref, never stale
+  useEffect(() => {
+    const id = setInterval(() => { loadBybit(); }, 1000);
     return () => clearInterval(id);
-  }, [loadBybit]);
+  }, []);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -242,12 +282,34 @@ export default function Dashboard() {
     }
   };
 
+  const handleSaveAutoConfig = async (e) => {
+    e.preventDefault();
+    setSavingAuto(true);
+    setAutoStatus(null);
+    try {
+      const result = await api.saveAutoTradeConfig(autoConfigForm);
+      setAutoConfig(autoConfigForm);
+      setAutoStatus({ ok: true, msg: result.enabled ? "Auto-trading enabled." : "Auto-trading disabled." });
+      const [logs, stats, pnl] = await Promise.all([
+        api.autoTradeLog(),
+        api.autoTradeStats(),
+        api.autoTradePnl(autoConfigForm.demo),
+      ]);
+      setAutoLog(logs);
+      setAutoStats(stats);
+      setAutoPnl(pnl);
+    } catch (err) {
+      setAutoStatus({ ok: false, msg: err.message });
+    }
+    setSavingAuto(false);
+  };
+
   const handleLeverage = async (val) => {
     setLeverage(val);
     localStorage.setItem("astraios_leverage", val);
     setSettingLev(true);
     try {
-      await api.tradeLeverage({ symbol: orderForm.symbol.toUpperCase(), leverage: val, testnet: !isLive });
+      await api.tradeLeverage({ symbol: orderForm.symbol.toUpperCase(), leverage: val, demo: isDemo});
     } catch {}
     setSettingLev(false);
   };
@@ -264,7 +326,7 @@ export default function Dashboard() {
         qty: orderForm.qty,
         tp: orderForm.tp || undefined,
         sl: orderForm.sl || undefined,
-        testnet: !isLive,
+        demo: isDemo,
       });
       setOrderStatus({ ok: true, msg: `Order placed: ${result.order_id}` });
       setOrderForm((f) => ({ ...f, qty: "", tp: "", sl: "" }));
@@ -278,7 +340,7 @@ export default function Dashboard() {
   const handleClose = async (pos) => {
     setClosing(pos.symbol);
     try {
-      await api.tradeClose({ symbol: pos.symbol, side: pos.side, qty: String(pos.size), testnet: !isLive });
+      await api.tradeClose({ symbol: pos.symbol, side: pos.side, qty: String(pos.size), demo: isDemo});
       await loadBybit();
     } catch (err) {
       setOrderStatus({ ok: false, msg: `Close failed: ${err.message}` });
@@ -339,15 +401,15 @@ export default function Dashboard() {
           <button
             type="button"
             className="mode-toggle"
-            onClick={() => setTradingMode((m) => { const next = m === "live" ? "paper" : "live"; localStorage.setItem("astraios_mode", next); return next; })}
+            onClick={() => setTradingMode((m) => { const next = m === "live" ? "demo" : "live"; localStorage.setItem("astraios_mode", next); return next; })}
           >
             <span className={`mode-toggle__opt${isLive ? " active" : ""}`}>
               <span className="status-pill__dot status-pill__dot--live" aria-hidden="true" />
               Live
             </span>
-            <span className={`mode-toggle__opt${!isLive ? " active" : ""}`}>
+            <span className={`mode-toggle__opt${isDemo ? " active" : ""}`}>
               <span className="status-pill__dot" aria-hidden="true" />
-              Paper
+              Demo
             </span>
           </button>
           <button type="button" className="dash-logout" onClick={logout}>
@@ -414,16 +476,16 @@ export default function Dashboard() {
             )}
 
             {/* Keys not configured prompt */}
-            {((isLive && !stats?.has_api_keys) || (!isLive && !stats?.has_testnet_keys)) ? (
+            {((isLive && !stats?.has_api_keys) || (isDemo && !stats?.has_demo_keys)) ? (
               <section className="keys-prompt">
                 <div className="keys-prompt__icon" aria-hidden="true" />
                 <h3 className="keys-prompt__title">
-                  {isLive ? "Connect your Bybit account" : "Connect Bybit testnet"}
+                  {isLive ? "Connect your Bybit account" : "Connect Bybit Demo account"}
                 </h3>
                 <p className="keys-prompt__text">
                   {isLive
                     ? "Add your Bybit mainnet API key and secret to start live trading."
-                    : "Add your Bybit testnet API key and secret to start paper trading with test funds."}
+                    : "Add your Bybit Demo API keys to trade with virtual funds at real market prices."}
                 </p>
                 <button
                   type="button"
@@ -434,20 +496,20 @@ export default function Dashboard() {
                     document.getElementById("account-title")?.scrollIntoView({ behavior: "smooth" });
                   }}
                 >
-                  {isLive ? "Add mainnet keys" : "Add testnet keys"}
+                  {isLive ? "Add mainnet keys" : "Add demo keys"}
                 </button>
               </section>
             ) : (
             <>
             {bybitError && (
-              <div className="bybit-error">{isLive ? "Bybit" : "Bybit Testnet"}: {bybitError}</div>
+              <div className="bybit-error">{isLive ? "Bybit" : "Bybit Demo"}: {bybitError}</div>
             )}
 
             {/* Trade terminal */}
             <section className="dash-trade" aria-labelledby="trade-title">
               <div className="dash-section-head">
                 <h2 id="trade-title">Trade</h2>
-                <span className="dash-section-badge">{isLive ? "USDT Perps" : "Testnet"}</span>
+                <span className="dash-section-badge">{isLive ? "USDT Perps" : "Demo"}</span>
               </div>
 
               <div className="trade-layout">
@@ -603,7 +665,7 @@ export default function Dashboard() {
 
             <section className="dash-bybit-positions" aria-labelledby="bybit-positions-title">
               <div className="dash-section-head">
-                <h2 id="bybit-positions-title">{isLive ? "Open positions" : "Testnet positions"}</h2>
+                <h2 id="bybit-positions-title">{isLive ? "Open positions" : "Demo positions"}</h2>
                 <span className="dash-section-badge">{bybitPositions.length} open</span>
               </div>
 
@@ -816,10 +878,10 @@ export default function Dashboard() {
                   </dd>
                 </div>
                 <div>
-                  <dt>Testnet API</dt>
+                  <dt>Demo API</dt>
                   <dd>
-                    {stats?.has_testnet_keys ? (
-                      <span className="api-key-connected">Connected ({stats.testnet_key_hint})</span>
+                    {stats?.has_demo_keys ? (
+                      <span className="api-key-connected">Connected ({stats.demo_key_hint})</span>
                     ) : (
                       <span className="api-key-none">Not configured</span>
                     )}
@@ -827,74 +889,387 @@ export default function Dashboard() {
                 </div>
               </dl>
 
-              {isLive ? (
-                <div className="api-keys-section">
-                  {stats?.has_api_keys ? (
-                    <div className="api-keys-actions">
-                      <button type="button" className="api-keys-btn" onClick={() => setShowKeysForm((v) => !v)}>
-                        {showKeysForm ? "Cancel" : "Update mainnet keys"}
-                      </button>
-                      <button type="button" className="api-keys-btn api-keys-btn--danger" onClick={handleRemoveKeys}>
-                        Remove
-                      </button>
-                    </div>
-                  ) : (
+              <div className="api-keys-section">
+                {stats?.has_api_keys ? (
+                  <div className="api-keys-actions">
                     <button type="button" className="api-keys-btn" onClick={() => setShowKeysForm((v) => !v)}>
-                      {showKeysForm ? "Cancel" : "Connect Bybit mainnet"}
+                      {showKeysForm ? "Cancel" : "Update live keys"}
                     </button>
+                    <button type="button" className="api-keys-btn api-keys-btn--danger" onClick={handleRemoveKeys}>
+                      Remove
+                    </button>
+                  </div>
+                ) : (
+                  <button type="button" className="api-keys-btn" onClick={() => setShowKeysForm((v) => !v)}>
+                    {showKeysForm ? "Cancel" : "Connect Bybit live"}
+                  </button>
+                )}
+                {showKeysForm && (
+                  <form className="api-keys-form" onSubmit={handleSaveKeys}>
+                    <label className="trade-field">
+                      <span className="trade-field__label">Live API Key</span>
+                      <input type="text" value={keysForm.apiKey} onChange={(e) => setKeysForm((f) => ({ ...f, apiKey: e.target.value }))} placeholder="Mainnet API key" autoComplete="off" />
+                    </label>
+                    <label className="trade-field">
+                      <span className="trade-field__label">Live API Secret</span>
+                      <input type="password" value={keysForm.apiSecret} onChange={(e) => setKeysForm((f) => ({ ...f, apiSecret: e.target.value }))} placeholder="Mainnet API secret" autoComplete="off" />
+                    </label>
+                    <button type="submit" className="trade-submit trade-submit--buy" disabled={savingKeys || !keysForm.apiKey || !keysForm.apiSecret}>
+                      {savingKeys ? "Saving…" : "Save"}
+                    </button>
+                  </form>
+                )}
+                {keysStatus && (
+                  <p className={`trade-status ${keysStatus.ok ? "trade-status--ok" : "trade-status--err"}`}>{keysStatus.msg}</p>
+                )}
+              </div>
+
+              <div className="api-keys-section">
+                {stats?.has_demo_keys ? (
+                  <div className="api-keys-actions">
+                    <button type="button" className="api-keys-btn" onClick={() => setShowTestnetKeysForm((v) => !v)}>
+                      {showTestnetKeysForm ? "Cancel" : "Update demo keys"}
+                    </button>
+                    <button type="button" className="api-keys-btn api-keys-btn--danger" onClick={handleRemoveTestnetKeys}>
+                      Remove
+                    </button>
+                  </div>
+                ) : (
+                  <button type="button" className="api-keys-btn" onClick={() => setShowTestnetKeysForm((v) => !v)}>
+                    {showTestnetKeysForm ? "Cancel" : "Connect Bybit demo"}
+                  </button>
+                )}
+                {showTestnetKeysForm && (
+                  <form className="api-keys-form" onSubmit={handleSaveTestnetKeys}>
+                    <label className="trade-field">
+                      <span className="trade-field__label">Demo API Key</span>
+                      <input type="text" value={testnetKeysForm.apiKey} onChange={(e) => setTestnetKeysForm((f) => ({ ...f, apiKey: e.target.value }))} placeholder="Demo API key" autoComplete="off" />
+                    </label>
+                    <label className="trade-field">
+                      <span className="trade-field__label">Demo API Secret</span>
+                      <input type="password" value={testnetKeysForm.apiSecret} onChange={(e) => setTestnetKeysForm((f) => ({ ...f, apiSecret: e.target.value }))} placeholder="Demo API secret" autoComplete="off" />
+                    </label>
+                    <button type="submit" className="trade-submit trade-submit--buy" disabled={savingTestnetKeys || !testnetKeysForm.apiKey || !testnetKeysForm.apiSecret}>
+                      {savingTestnetKeys ? "Saving…" : "Save"}
+                    </button>
+                  </form>
+                )}
+                {testnetKeysStatus && (
+                  <p className={`trade-status ${testnetKeysStatus.ok ? "trade-status--ok" : "trade-status--err"}`}>{testnetKeysStatus.msg}</p>
+                )}
+              </div>
+            </section>
+
+            <section className="dash-auto-trade" aria-labelledby="auto-trade-title">
+              <div className="dash-section-head">
+                <h2 id="auto-trade-title">Auto-Trading</h2>
+                <div className="auto-trade-head-right">
+                  {autoConfig?.enabled
+                    ? <span className="auto-trade-badge auto-trade-badge--on">ACTIVE — {autoConfig.demo ? "DEMO" : "LIVE"}</span>
+                    : <span className="auto-trade-badge auto-trade-badge--off">OFF</span>
+                  }
+                  <span className="auto-trade-global-mode">{isLive ? "Global: Live" : "Global: Demo"}</span>
+                </div>
+              </div>
+
+              {autoConfigForm && (
+                <form className="auto-trade-form" onSubmit={handleSaveAutoConfig}>
+                  <div className="auto-trade-toggle-row">
+                    <label className="auto-trade-toggle">
+                      <input
+                        type="checkbox"
+                        checked={autoConfigForm.enabled}
+                        onChange={(e) => setAutoConfigForm((f) => ({ ...f, enabled: e.target.checked }))}
+                      />
+                      <span className="auto-trade-toggle__track" />
+                      <span className="auto-trade-toggle__label">
+                        {autoConfigForm.enabled ? "Enabled" : "Disabled"}
+                      </span>
+                    </label>
+
+                    <div className="auto-trade-mode-select">
+                      <span className="trade-field__label">Execution mode</span>
+                      <div className="auto-trade-mode-btns">
+                        <button
+                          type="button"
+                          className={`auto-trade-mode-btn${autoConfigForm.demo ? " active" : ""}`}
+                          onClick={() => setAutoConfigForm((f) => ({ ...f, demo: true }))}
+                        >Demo</button>
+                        <button
+                          type="button"
+                          className={`auto-trade-mode-btn danger${!autoConfigForm.demo ? " active" : ""}`}
+                          onClick={() => setAutoConfigForm((f) => ({ ...f, demo: false }))}
+                        >Live</button>
+                      </div>
+                      {!autoConfigForm.demo && (
+                        <p className="auto-trade-mode-warn">⚠ Live mode places real orders with real funds.</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="auto-trade-grid">
+                    <label className="trade-field">
+                      <span className="trade-field__label">Min Confidence</span>
+                      <input
+                        type="number" step="0.01" min="0.5" max="1"
+                        value={autoConfigForm.confidence_threshold}
+                        onChange={(e) => setAutoConfigForm((f) => ({ ...f, confidence_threshold: parseFloat(e.target.value) }))}
+                      />
+                    </label>
+                    <label className="trade-field">
+                      <span className="trade-field__label">Max Positions</span>
+                      <input
+                        type="number" min="1" max="10"
+                        value={autoConfigForm.max_positions}
+                        onChange={(e) => setAutoConfigForm((f) => ({ ...f, max_positions: parseInt(e.target.value) }))}
+                      />
+                    </label>
+                    <label className="trade-field">
+                      <span className="trade-field__label">Size % of Equity</span>
+                      <input
+                        type="number" step="0.1" min="0.1" max="50"
+                        value={autoConfigForm.position_size_pct}
+                        onChange={(e) => setAutoConfigForm((f) => ({ ...f, position_size_pct: parseFloat(e.target.value) }))}
+                      />
+                    </label>
+                    <label className="trade-field">
+                      <span className="trade-field__label">Leverage</span>
+                      <input
+                        type="number" min="1" max="20"
+                        value={autoConfigForm.leverage}
+                        onChange={(e) => setAutoConfigForm((f) => ({ ...f, leverage: parseInt(e.target.value) }))}
+                      />
+                    </label>
+                    <label className="trade-field">
+                      <span className="trade-field__label">Take Profit %</span>
+                      <input
+                        type="number" step="0.1" min="0.1"
+                        value={autoConfigForm.tp_pct}
+                        onChange={(e) => setAutoConfigForm((f) => ({ ...f, tp_pct: parseFloat(e.target.value) }))}
+                      />
+                    </label>
+                    <label className="trade-field">
+                      <span className="trade-field__label">Stop Loss %</span>
+                      <input
+                        type="number" step="0.1" min="0.1"
+                        value={autoConfigForm.sl_pct}
+                        onChange={(e) => setAutoConfigForm((f) => ({ ...f, sl_pct: parseFloat(e.target.value) }))}
+                      />
+                    </label>
+                    <label className="trade-field auto-trade-symbols">
+                      <span className="trade-field__label">Symbols (comma-separated)</span>
+                      <input
+                        type="text"
+                        value={autoConfigForm.symbols}
+                        onChange={(e) => setAutoConfigForm((f) => ({ ...f, symbols: e.target.value }))}
+                        placeholder="BTCUSDT,ETHUSDT,SOLUSDT"
+                      />
+                    </label>
+                  </div>
+
+                  <button type="submit" className="trade-submit trade-submit--buy" disabled={savingAuto}>
+                    {savingAuto ? "Saving…" : "Save configuration"}
+                  </button>
+                  {autoStatus && (
+                    <p className={`trade-status ${autoStatus.ok ? "trade-status--ok" : "trade-status--err"}`}>
+                      {autoStatus.msg}
+                    </p>
                   )}
-                  {showKeysForm && (
-                    <form className="api-keys-form" onSubmit={handleSaveKeys}>
-                      <label className="trade-field">
-                        <span className="trade-field__label">API Key</span>
-                        <input type="text" value={keysForm.apiKey} onChange={(e) => setKeysForm((f) => ({ ...f, apiKey: e.target.value }))} placeholder="Mainnet API key" autoComplete="off" />
-                      </label>
-                      <label className="trade-field">
-                        <span className="trade-field__label">API Secret</span>
-                        <input type="password" value={keysForm.apiSecret} onChange={(e) => setKeysForm((f) => ({ ...f, apiSecret: e.target.value }))} placeholder="Mainnet API secret" autoComplete="off" />
-                      </label>
-                      <button type="submit" className="trade-submit trade-submit--buy" disabled={savingKeys || !keysForm.apiKey || !keysForm.apiSecret}>
-                        {savingKeys ? "Saving…" : "Save"}
-                      </button>
-                    </form>
-                  )}
-                  {keysStatus && (
-                    <p className={`trade-status ${keysStatus.ok ? "trade-status--ok" : "trade-status--err"}`}>{keysStatus.msg}</p>
+                </form>
+              )}
+
+              {autoStats && (
+                <div className="auto-trade-stats">
+                  <div className="dash-section-label" style={{marginBottom:"0.75rem"}}>Performance</div>
+                  <div className="auto-stats-grid">
+                    <div className="auto-stat">
+                      <span className="auto-stat__label">Total orders</span>
+                      <span className="auto-stat__value">{autoStats.total_orders}</span>
+                    </div>
+                    <div className="auto-stat">
+                      <span className="auto-stat__label">Filled</span>
+                      <span className="auto-stat__value val-up">{autoStats.filled}</span>
+                    </div>
+                    <div className="auto-stat">
+                      <span className="auto-stat__label">Errors</span>
+                      <span className={`auto-stat__value${autoStats.errors > 0 ? " val-down" : ""}`}>{autoStats.errors}</span>
+                    </div>
+                    <div className="auto-stat">
+                      <span className="auto-stat__label">Fill rate</span>
+                      <span className="auto-stat__value">{autoStats.success_rate}%</span>
+                    </div>
+                    <div className="auto-stat">
+                      <span className="auto-stat__label">Today</span>
+                      <span className="auto-stat__value">{autoStats.today_orders} orders</span>
+                    </div>
+                    <div className="auto-stat">
+                      <span className="auto-stat__label">Active</span>
+                      <span className={`auto-stat__value${autoStats.active_positions > 0 ? " val-up" : ""}`}>{autoStats.active_positions} positions</span>
+                    </div>
+                    <div className="auto-stat">
+                      <span className="auto-stat__label">Avg confidence</span>
+                      <span className="auto-stat__value">{autoStats.avg_confidence}%</span>
+                    </div>
+                    <div className="auto-stat">
+                      <span className="auto-stat__label">Avg hold time</span>
+                      <span className="auto-stat__value">
+                        {autoStats.avg_hold_minutes >= 60
+                          ? `${(autoStats.avg_hold_minutes / 60).toFixed(1)}h`
+                          : `${autoStats.avg_hold_minutes}m`}
+                      </span>
+                    </div>
+                    <div className="auto-stat">
+                      <span className="auto-stat__label">Buy / Sell</span>
+                      <span className="auto-stat__value">
+                        <span className="val-up">{autoStats.by_side?.Buy ?? 0}</span>
+                        {" / "}
+                        <span className="val-down">{autoStats.by_side?.Sell ?? 0}</span>
+                      </span>
+                    </div>
+                  </div>
+                  {autoStats.top_symbols?.length > 0 && (
+                    <div className="auto-stats-symbols">
+                      <span className="dash-section-label" style={{marginBottom:"0.5rem",display:"block"}}>Top symbols</span>
+                      {autoStats.top_symbols.map((s) => (
+                        <div className="auto-stats-symbol-row" key={s.symbol}>
+                          <span className="auto-stats-symbol-name">{s.symbol}</span>
+                          <span className="auto-stats-symbol-bar-wrap">
+                            <span
+                              className="auto-stats-symbol-bar"
+                              style={{width: `${Math.min(100, (s.filled / (autoStats.filled || 1)) * 100)}%`}}
+                            />
+                          </span>
+                          <span className="auto-stats-symbol-count val-up">{s.filled} filled</span>
+                          {s.errors > 0 && <span className="auto-stats-symbol-count val-down">{s.errors} err</span>}
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
-              ) : (
-                <div className="api-keys-section">
-                  {stats?.has_testnet_keys ? (
-                    <div className="api-keys-actions">
-                      <button type="button" className="api-keys-btn" onClick={() => setShowTestnetKeysForm((v) => !v)}>
-                        {showTestnetKeysForm ? "Cancel" : "Update testnet keys"}
-                      </button>
-                      <button type="button" className="api-keys-btn api-keys-btn--danger" onClick={handleRemoveTestnetKeys}>
-                        Remove
-                      </button>
+              )}
+
+              {autoPnl && (
+                <div className="auto-pnl-section">
+                  <div className="dash-section-label" style={{marginBottom:"0.75rem"}}>Realized P&amp;L</div>
+
+                  <div className="auto-pnl-summary">
+                    <div className="auto-pnl-total">
+                      <span className="auto-stat__label">Net P&amp;L</span>
+                      <span className={`auto-pnl-total__value ${autoPnl.summary.total_pnl >= 0 ? "val-up" : "val-down"}`}>
+                        {autoPnl.summary.total_pnl >= 0 ? "+" : ""}{autoPnl.summary.total_pnl.toFixed(4)} USDT
+                      </span>
                     </div>
+                    <div className="auto-pnl-meta">
+                      <div className="auto-stat">
+                        <span className="auto-stat__label">Win rate</span>
+                        <span className="auto-stat__value">{autoPnl.summary.win_rate}%</span>
+                      </div>
+                      <div className="auto-stat">
+                        <span className="auto-stat__label">Trades</span>
+                        <span className="auto-stat__value">
+                          <span className="val-up">{autoPnl.summary.win_count}W</span>
+                          {" / "}
+                          <span className="val-down">{autoPnl.summary.loss_count}L</span>
+                        </span>
+                      </div>
+                      <div className="auto-stat">
+                        <span className="auto-stat__label">Avg win</span>
+                        <span className="auto-stat__value val-up">+{autoPnl.summary.avg_win.toFixed(4)}</span>
+                      </div>
+                      <div className="auto-stat">
+                        <span className="auto-stat__label">Avg loss</span>
+                        <span className="auto-stat__value val-down">{autoPnl.summary.avg_loss.toFixed(4)}</span>
+                      </div>
+                      <div className="auto-stat">
+                        <span className="auto-stat__label">Best trade</span>
+                        <span className="auto-stat__value val-up">+{autoPnl.summary.largest_win.toFixed(4)}</span>
+                      </div>
+                      <div className="auto-stat">
+                        <span className="auto-stat__label">Worst trade</span>
+                        <span className="auto-stat__value val-down">{autoPnl.summary.largest_loss.toFixed(4)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {autoPnl.trades.length > 0 && (
+                    <div className="auto-pnl-trades">
+                      <table className="auto-trade-table">
+                        <thead>
+                          <tr>
+                            <th>Time</th>
+                            <th>Symbol</th>
+                            <th>Side</th>
+                            <th>Qty</th>
+                            <th>Entry</th>
+                            <th>Exit</th>
+                            <th>P&amp;L</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {autoPnl.trades.map((t, i) => (
+                            <tr key={i} className={t.pnl >= 0 ? "auto-trade-row--win" : "auto-trade-row--loss"}>
+                              <td>{t.updated_time ? new Date(parseInt(t.updated_time)).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}) : "—"}</td>
+                              <td>{t.symbol}</td>
+                              <td className={t.side === "Buy" ? "val-up" : "val-down"}>{t.side}</td>
+                              <td>{t.qty}</td>
+                              <td>{t.entry_price.toFixed(4)}</td>
+                              <td>{t.exit_price.toFixed(4)}</td>
+                              <td className={t.pnl >= 0 ? "val-up" : "val-down"}>
+                                {t.pnl >= 0 ? "+" : ""}{t.pnl.toFixed(4)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {autoPnl.trades.length === 0 && (
+                    <p className="dash-empty">No closed trades yet.</p>
+                  )}
+                </div>
+              )}
+
+              <div className="auto-trade-log-header">
+                <span className="dash-section-label">Trade Log</span>
+                <button type="button" className="api-keys-btn" onClick={() => {
+                  setShowAutoLog((v) => !v);
+                  if (!showAutoLog) api.autoTradeLog().then(setAutoLog).catch(() => {});
+                }}>
+                  {showAutoLog ? "Hide" : `Show (${autoLog.length})`}
+                </button>
+              </div>
+              {showAutoLog && (
+                <div className="auto-trade-log">
+                  {autoLog.length === 0 ? (
+                    <p className="dash-empty">No auto-trades executed yet.</p>
                   ) : (
-                    <button type="button" className="api-keys-btn" onClick={() => setShowTestnetKeysForm((v) => !v)}>
-                      {showTestnetKeysForm ? "Cancel" : "Connect Bybit testnet"}
-                    </button>
-                  )}
-                  {showTestnetKeysForm && (
-                    <form className="api-keys-form" onSubmit={handleSaveTestnetKeys}>
-                      <label className="trade-field">
-                        <span className="trade-field__label">Testnet API Key</span>
-                        <input type="text" value={testnetKeysForm.apiKey} onChange={(e) => setTestnetKeysForm((f) => ({ ...f, apiKey: e.target.value }))} placeholder="Testnet API key" autoComplete="off" />
-                      </label>
-                      <label className="trade-field">
-                        <span className="trade-field__label">Testnet API Secret</span>
-                        <input type="password" value={testnetKeysForm.apiSecret} onChange={(e) => setTestnetKeysForm((f) => ({ ...f, apiSecret: e.target.value }))} placeholder="Testnet API secret" autoComplete="off" />
-                      </label>
-                      <button type="submit" className="trade-submit trade-submit--buy" disabled={savingTestnetKeys || !testnetKeysForm.apiKey || !testnetKeysForm.apiSecret}>
-                        {savingTestnetKeys ? "Saving…" : "Save"}
-                      </button>
-                    </form>
-                  )}
-                  {testnetKeysStatus && (
-                    <p className={`trade-status ${testnetKeysStatus.ok ? "trade-status--ok" : "trade-status--err"}`}>{testnetKeysStatus.msg}</p>
+                    <table className="auto-trade-table">
+                      <thead>
+                        <tr>
+                          <th>Time</th>
+                          <th>Symbol</th>
+                          <th>Action</th>
+                          <th>Side</th>
+                          <th>Qty</th>
+                          <th>Conf</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {autoLog.map((l) => (
+                          <tr key={l.id} className={l.status === "error" ? "auto-trade-row--error" : ""}>
+                            <td>{new Date(l.created_at).toLocaleTimeString()}</td>
+                            <td>{l.symbol}</td>
+                            <td>{l.action}</td>
+                            <td className={l.side === "Buy" ? "val-up" : "val-down"}>{l.side}</td>
+                            <td>{l.qty}</td>
+                            <td>{(l.confidence * 100).toFixed(0)}%</td>
+                            <td>{l.status === "error" ? `❌ ${l.error?.slice(0, 40)}` : "✓"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   )}
                 </div>
               )}

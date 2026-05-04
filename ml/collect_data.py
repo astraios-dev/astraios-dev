@@ -1,11 +1,12 @@
 """
-Enhanced data collection — Phase 1 improvements:
+Data collection v4:
 
-- Recency filter: last 18 months only (recent market structure generalises better)
-- Taker buy/sell ratio feature (from Binance kline col 9/10)
-- Symmetric triple barrier: 2.0×ATR up AND down (removes label asymmetry)
-- Longer horizon: 24 bars (1 day)
-- All existing: funding rates, OI, L/S ratio, 35 base features
+- Return-quantile labels: top-30% fwd return = BUY, bottom-30% = SELL, middle dropped
+- Per-symbol quantile thresholds (adapts to each symbol's volatility regime)
+- Regime features: vol_regime, trend_strength, btc_correlation
+- Richer cross-asset: btc_dominance_proxy, funding_divergence, btc_corr_20
+- 3-year history for major symbols (BTC/ETH/BNB/SOL/XRP), 18mo for alts
+- Extended symbol list (29 symbols)
 """
 
 import sys
@@ -20,12 +21,28 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from api.config import settings
 
 SYMBOLS = [
-    "BTCUSDT", "ETHUSDT", "SOLUSDT", "SUIUSDT",
-    "DOGEUSDT", "XRPUSDT", "LINKUSDT", "AAVEUSDT",
-    "AVAXUSDT", "ARBUSDT", "WIFUSDT", "1000PEPEUSDT",
-    "BNBUSDT", "OPUSDT", "APTUSDT",
-    "INJUSDT", "TIAUSDT", "SEIUSDT", "NEARUSDT",
+    # Majors — 3-year history available
+    "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
+    # Large alts
+    "DOGEUSDT", "AVAXUSDT", "LINKUSDT", "AAVEUSDT", "UNIUSDT",
+    # Mid alts
+    "SUIUSDT", "ARBUSDT", "OPUSDT", "APTUSDT", "NEARUSDT",
+    "INJUSDT", "TIAUSDT", "SEIUSDT",
+    # Meme / high-vol
+    "WIFUSDT", "1000PEPEUSDT", "BONKUSDT",
+    # Additional liquid perps
+    "LDOUSDT", "ATOMUSDT", "DOTUSDT",
+    "ADAUSDT", "MATICUSDT", "LTCUSDT", "TRXUSDT",
+    # FTMUSDT excluded — delisting caused 75% zero-return bars, label artefact
 ]
+
+# Minimum fraction of non-zero returns required — filters illiquid/delisted assets
+MIN_NONZERO_RETURN_FRAC = 0.30
+
+# Symbols with 3-year history on Binance futures
+LONG_HISTORY_SYMBOLS = {"BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
+                         "DOGEUSDT", "AVAXUSDT", "LINKUSDT", "ADAUSDT", "MATICUSDT",
+                         "LTCUSDT", "DOTUSDT", "ATOMUSDT", "TRXUSDT"}
 
 # Binance uses same symbol names except 1000PEPE
 BINANCE_SYMBOL_MAP = {"1000PEPEUSDT": "1000PEPEUSDT"}
@@ -34,15 +51,13 @@ BINANCE_URL = "https://fapi.binance.com/fapi/v1/klines"
 BINANCE_FUNDING_URL = "https://fapi.binance.com/fapi/v1/fundingRate"
 import datetime
 
-# Recency filter: only keep last 18 months
-RECENCY_MONTHS = 18
-RECENCY_START_MS = int((datetime.datetime.utcnow() - datetime.timedelta(days=RECENCY_MONTHS * 30)).timestamp() * 1000)
+MAX_CANDLES_SHORT = 15000   # 18 months at 1h
+MAX_CANDLES_LONG  = 30000   # 3+ years at 1h (~26,280)
+RECENCY_MONTHS_SHORT = 18
+RECENCY_MONTHS_LONG  = 36
 
-MAX_CANDLES = 15000  # enough for 18 months of 1h bars (~13,140)
-# Symmetric barriers + longer horizon
-ATR_MULT_UPPER = 2.0
-ATR_MULT_LOWER = 2.0
-MAX_HOLD_BARS  = 24
+def _start_ms(months):
+    return int((datetime.datetime.utcnow() - datetime.timedelta(days=months * 30)).timestamp() * 1000)
 
 
 def get_proxies():
@@ -58,7 +73,7 @@ def get_bybit_client():
     return c
 
 
-def fetch_binance_klines(symbol, interval="1h", limit=MAX_CANDLES, start_ms=RECENCY_START_MS):
+def fetch_binance_klines(symbol, interval="1h", limit=MAX_CANDLES_SHORT, start_ms=None):
     """Paginate Binance futures klines from start_ms to now, oldest first.
 
     Binance kline columns:
@@ -68,7 +83,7 @@ def fetch_binance_klines(symbol, interval="1h", limit=MAX_CANDLES, start_ms=RECE
     proxies = get_proxies()
     bsym = BINANCE_SYMBOL_MAP.get(symbol, symbol)
     all_candles = []
-    current_start = start_ms
+    current_start = start_ms if start_ms is not None else _start_ms(RECENCY_MONTHS_SHORT)
 
     while len(all_candles) < limit:
         batch = min(1500, limit - len(all_candles))
@@ -288,75 +303,149 @@ def engineer_features(df):
         df["ls_ma8"]           = 1.0
         df["ls_change"]        = 0.0
 
+    # --- Regime features ---
+    ret = df["returns"].fillna(0)
+
+    # vol_regime: ratio of short-term to long-term realised vol
+    # >1 = elevated/expanding vol, <1 = calm/contracting vol
+    rv5  = ret.rolling(5).std().fillna(0)
+    rv20 = ret.rolling(20).std().fillna(1e-9)
+    df["vol_regime"] = (rv5 / rv20.replace(0, 1e-9)).fillna(1.0).clip(0, 5)
+
+    # trend_strength: ADX-proxy using EMA slope normalised by ATR
+    ema50_slope = (df["ema_50"].diff(5) / df["atr_14"].replace(0, 1e-9)).fillna(0)
+    df["trend_strength"] = ema50_slope.clip(-5, 5)
+
+    # price_vs_sma200: position of close relative to 200-bar SMA (regime anchor)
+    sma200 = c.rolling(200, min_periods=50).mean()
+    df["price_vs_sma200"] = ((c - sma200) / sma200.replace(0, 1e-9)).fillna(0).clip(-1, 1)
+
     return df
 
 
-def triple_barrier_label(df, atr_col="atr_14", upper_mult=ATR_MULT_UPPER,
-                          lower_mult=ATR_MULT_LOWER, max_bars=MAX_HOLD_BARS):
+def quantile_label(df, horizon=24, buy_quantile=0.70, sell_quantile=0.30):
+    """Per-symbol return-quantile labels.
+
+    Forward return over `horizon` bars is computed for each row. Rows whose
+    forward return is in the top (1-buy_quantile) of the symbol's distribution
+    are labelled BUY=1; bottom sell_quantile are labelled SELL=0. The middle
+    40% are dropped — they are too noisy to learn from.
+
+    This is symbol-relative and adapts to volatility regimes automatically.
+    """
     closes = df["close"].values
-    atrs   = df[atr_col].values
-    n      = len(closes)
-    labels = np.ones(n, dtype=np.int64)
+    n = len(closes)
+    fwd_returns = np.full(n, np.nan)
 
-    for i in range(n - 1):
-        if np.isnan(atrs[i]) or atrs[i] == 0:
+    for i in range(n - horizon):
+        fwd_returns[i] = closes[i + horizon] / closes[i] - 1
+
+    df["fwd_return"] = fwd_returns
+
+    # Compute quantile thresholds on non-nan rows only
+    valid = fwd_returns[~np.isnan(fwd_returns)]
+    q_buy  = np.quantile(valid, buy_quantile)
+    q_sell = np.quantile(valid, sell_quantile)
+
+    labels = np.full(n, -1, dtype=np.int64)
+    for i in range(n):
+        if np.isnan(fwd_returns[i]):
             continue
-        upper = closes[i] + upper_mult * atrs[i]
-        lower = closes[i] - lower_mult * atrs[i]
-        horizon = min(i + max_bars, n - 1)
-
-        hit = 1
-        for j in range(i + 1, horizon + 1):
-            if closes[j] >= upper:
-                hit = 2
-                break
-            elif closes[j] <= lower:
-                hit = 0
-                break
-        else:
-            fwd = closes[horizon] / closes[i] - 1
-            hit = 2 if fwd > 0.003 else (0 if fwd < -0.003 else 1)
-
-        labels[i] = hit
+        if fwd_returns[i] >= q_buy:
+            labels[i] = 1   # BUY
+        elif fwd_returns[i] <= q_sell:
+            labels[i] = 0   # SELL
+        # middle band → stays -1 (dropped)
 
     df["label"] = labels
+    df = df[df["label"] >= 0].copy()
+    df = df.drop(columns=["fwd_return"])
     return df
 
 
 FEATURE_COLS = [
-    "returns", "log_returns",
-    "ema_ratio_8", "ema_ratio_21", "ema_ratio_50", "ema_cross_8_21",
-    "rsi_14", "rsi_7",
-    "macd", "macd_signal", "macd_hist",
-    "bb_pct", "atr_norm",
-    "vol_ratio",
-    "ret_lag_1", "ret_lag_2", "ret_lag_3", "ret_lag_5",
-    "mom_5", "mom_10", "mom_20",
-    "high_low_range", "close_position",
+    # Price action (5)
+    "returns",
+    "ema_ratio_8", "ema_ratio_21", "ema_ratio_50",
+    "close_position",
+    # Momentum (4)
+    "rsi_14",
+    "macd_hist",
+    "bb_pct",
+    "mom_20",
+    # Volatility (3)
+    "atr_norm",
     "rolling_vol_5", "rolling_vol_20",
-    # Taker buy/sell pressure (new)
-    "taker_buy_ratio", "taker_buy_ma8", "taker_buy_delta", "taker_buy_pressure",
-    # Market microstructure
-    "funding_rate", "funding_rate_ma8", "funding_rate_std8", "funding_cumulative",
-    "oi_change", "oi_ratio", "oi_price_div",
-    "long_short_ratio", "ls_ma8", "ls_change",
+    # Volume (3)
+    "vol_ratio",
+    "taker_buy_ratio", "taker_buy_pressure",
+    # Lagged returns (2)
+    "ret_lag_1", "ret_lag_3",
+    # Microstructure — funding only (2)
+    "funding_rate", "funding_rate_ma8",
+    # Cross-asset context (4)
+    "btc_returns", "btc_mom_5",
+    "btc_vol_ratio", "btc_trend",
+    # Regime features (3)
+    "vol_regime", "trend_strength", "price_vs_sma200",
+    # Correlation + funding divergence (2)
+    "btc_corr_20", "funding_divergence",
 ]
+
+
+def _build_btc_reference(btc_df):
+    """Build BTC cross-asset features indexed by timestamp."""
+    c = btc_df["close"]
+    ret = c.pct_change().fillna(0)
+    ref = pd.DataFrame({"timestamp": btc_df["timestamp"]})
+    ref["btc_returns"]     = ret
+    ref["btc_mom_5"]       = (c / c.shift(5) - 1).fillna(0)
+    ref["btc_vol_ratio"]   = (ret.rolling(5).std() / ret.rolling(20).std().replace(0, 1e-9)).fillna(1).clip(0, 5)
+    # BTC trend regime: 1 if above 50-EMA, -1 if below, 0 at threshold
+    ema50 = c.ewm(span=50, adjust=False).mean()
+    ref["btc_trend"]       = np.sign(c.values - ema50.values).astype(np.float32)
+    # Funding-rate proxy via BTC (will be enriched per-symbol below)
+    if "funding_rate" in btc_df.columns:
+        ref["btc_funding"]  = btc_df["funding_rate"].ffill().fillna(0)
+    else:
+        ref["btc_funding"]  = 0.0
+    return ref.set_index("timestamp")
 
 
 def build_dataset():
     bybit_client = get_bybit_client()
     all_dfs = []
 
+    # Fetch BTC first for cross-asset features (3-year window)
+    print("Fetching BTC reference data for cross-asset features...")
+    btc_klines = fetch_binance_klines("BTCUSDT", "1h", MAX_CANDLES_LONG, start_ms=_start_ms(RECENCY_MONTHS_LONG))
+    btc_klines_with_funding = btc_klines.copy()
+    btc_fr_df = fetch_binance_funding("BTCUSDT", 10000)
+    if not btc_fr_df.empty:
+        btc_fr_indexed = btc_fr_df.set_index("timestamp").reindex(btc_klines["timestamp"]).ffill().bfill()
+        btc_klines_with_funding["funding_rate"] = btc_fr_indexed["funding_rate"].values
+    btc_ref = _build_btc_reference(btc_klines_with_funding) if not btc_klines.empty else None
+    if btc_ref is not None:
+        print(f"  BTC reference: {len(btc_ref)} bars")
+
     for symbol in SYMBOLS:
         print(f"\n{'='*50}")
         print(f"Fetching {symbol}...")
         try:
-            # 1. Binance klines (main data source — years of history)
-            df = fetch_binance_klines(symbol, "1h", MAX_CANDLES)
+            # 1. Binance klines — longer history for major symbols
+            is_long = symbol in LONG_HISTORY_SYMBOLS
+            max_candles = MAX_CANDLES_LONG if is_long else MAX_CANDLES_SHORT
+            recency_months = RECENCY_MONTHS_LONG if is_long else RECENCY_MONTHS_SHORT
+            df = fetch_binance_klines(symbol, "1h", max_candles, start_ms=_start_ms(recency_months))
             if df.empty or len(df) < 200:
                 print(f"  skipped (insufficient klines: {len(df)})")
                 continue
-            print(f"  Binance klines: {len(df)} ({len(df)//24} days)")
+            # Quality gate: skip illiquid/delisted symbols with too many zero-return bars
+            nonzero_frac = (df["close"].pct_change().fillna(0) != 0).mean()
+            if nonzero_frac < MIN_NONZERO_RETURN_FRAC:
+                print(f"  skipped (illiquid: {nonzero_frac:.1%} non-zero returns < {MIN_NONZERO_RETURN_FRAC:.0%} threshold)")
+                continue
+            print(f"  Binance klines: {len(df)} ({len(df)//24} days, {nonzero_frac:.0%} active bars)")
 
             # 2. Binance funding rates — merge into klines
             fr_df = fetch_binance_funding(symbol, 10000)
@@ -365,25 +454,30 @@ def build_dataset():
                 df["funding_rate"] = fr_df["funding_rate"].values
                 print(f"  Binance funding: {len(fr_df)} records")
 
-            # 3. Bybit OI (recent only — fill NaN with 0 for historical rows)
-            oi_df = fetch_bybit_oi(bybit_client, symbol, 1000)
-            if not oi_df.empty:
-                oi_indexed = oi_df.set_index("timestamp").reindex(df["timestamp"]).ffill()
-                df["open_interest"] = oi_indexed["open_interest"].values
-                print(f"  Bybit OI: {len(oi_df)} records")
-            time.sleep(0.1)
-
-            # 4. Bybit L/S ratio (recent only — fill NaN with 1.0 for historical rows)
-            ls_df = fetch_bybit_ls(bybit_client, symbol, 500)
-            if not ls_df.empty:
-                ls_indexed = ls_df.set_index("timestamp").reindex(df["timestamp"]).ffill()
-                df["long_short_ratio"] = ls_indexed["long_short_ratio"].values
-                print(f"  Bybit L/S: {len(ls_df)} records")
-            time.sleep(0.1)
-
-            # 5. Engineer features + labels
+            # 3. Engineer features + labels
             df = engineer_features(df)
-            df = triple_barrier_label(df)
+            df = quantile_label(df)
+
+            # 4. Merge BTC cross-asset features
+            if btc_ref is not None:
+                btc_aligned = btc_ref.reindex(df["timestamp"].values).fillna(0)
+                for col in btc_ref.columns:
+                    df[col] = btc_aligned[col].values
+
+                # Rolling 20-bar correlation with BTC returns
+                sym_ret = pd.Series(df["returns"].values)
+                btc_ret = pd.Series(df["btc_returns"].values)
+                df["btc_corr_20"] = sym_ret.rolling(20, min_periods=10).corr(btc_ret).fillna(0)
+
+                # Funding divergence: symbol funding minus BTC funding
+                fr_sym = df["funding_rate"].values if "funding_rate" in df.columns else np.zeros(len(df))
+                fr_btc = df["btc_funding"].values if "btc_funding" in df.columns else np.zeros(len(df))
+                df["funding_divergence"] = fr_sym - fr_btc
+            else:
+                for col in ["btc_returns", "btc_mom_5", "btc_vol_ratio", "btc_trend",
+                            "btc_funding", "btc_corr_20", "funding_divergence"]:
+                    df[col] = 0.0
+
             df["symbol"] = symbol
             df = df.replace([np.inf, -np.inf], np.nan).dropna(subset=FEATURE_COLS + ["label"])
             all_dfs.append(df)
@@ -404,5 +498,8 @@ def build_dataset():
 if __name__ == "__main__":
     dataset = build_dataset()
     out = os.path.join(os.path.dirname(__file__), "dataset.csv")
-    dataset[FEATURE_COLS + ["label", "symbol", "timestamp"]].to_csv(out, index=False)
+    # Include close price for TP/SL backtesting in evaluate.py
+    save_cols = FEATURE_COLS + ["close", "label", "symbol", "timestamp"]
+    save_cols = [c for c in save_cols if c in dataset.columns]
+    dataset[save_cols].to_csv(out, index=False)
     print(f"\nSaved to {out}")

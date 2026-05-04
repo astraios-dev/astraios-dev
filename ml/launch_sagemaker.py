@@ -60,16 +60,18 @@ def main():
     print(f"Starting training job: {job_name}")
 
     hyperparameters = {
-        "epochs": "60",
-        "batch-size": "256",
-        "lr": "0.00005",
-        "seq-len": "64",
-        "d-model": "256",
-        "n-heads": "8",
-        "n-layers": "4",
-        "d-ff": "512",
-        "dropout": "0.25",
-        "val-months": "4",
+        "epochs": "50",
+        "batch-size": "512",
+        "lr": "0.0003",
+        "seq-len": "48",
+        "d-model": "66",   # divisible by 3 for CNN channels (22+22+22)
+        "n-heads": "2",
+        "n-layers": "3",
+        "d-ff": "256",
+        "dropout": "0.15",
+        "patience": "10",
+        "n-folds": "3",
+        "embargo-bars": "24",
     }
 
     sm.create_training_job(
@@ -95,7 +97,7 @@ def main():
             "S3OutputPath": f"s3://{BUCKET}/{PREFIX}/output/",
         },
         ResourceConfig={
-            "InstanceType": "ml.g5.xlarge",
+            "InstanceType": "ml.g5.12xlarge",
             "InstanceCount": 1,
             "VolumeSizeInGB": 30,
         },

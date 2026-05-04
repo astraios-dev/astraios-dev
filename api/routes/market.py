@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
+from api.limiter import limiter
 from api.models.user import User
 from api.services.auth import get_current_user
 from api.services.market_data import fetch_prices, ALL_DISPLAY_TICKERS
@@ -15,7 +16,8 @@ async def market_prices(user: User = Depends(get_current_user)):
 
 
 @router.post("/refresh")
-async def trigger_refresh(user: User = Depends(get_current_user)):
+@limiter.limit("2/minute")
+async def trigger_refresh(request: Request, user: User = Depends(get_current_user)):
     await refresh_signals()
     await refresh_prices()
     return {"status": "ok", "message": "Signals generated and prices updated."}
