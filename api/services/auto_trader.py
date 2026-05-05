@@ -26,6 +26,7 @@ from api.models.user import User
 from api.models.signal import Signal
 from api.models.auto_trade import AutoTradeConfig, AutoTradeLog
 from api.services import bybit
+from api.services import solana_trader
 from api.services.crypto import decrypt_key
 
 log = logging.getLogger("astraios.auto_trader")
@@ -73,20 +74,117 @@ async def _log(db: AsyncSession, user_id, symbol, action, side, qty, confidence,
 
 
 async def run_for_user(user: User, cfg: AutoTradeConfig, signals: list[Signal]):
-    """Execute auto-trading logic for one user."""
-    demo = getattr(cfg, "demo", True)
-    api_key, api_secret = _keys(user, demo)
-    if not api_key or not api_secret:
-        log.debug("user %s: no keys for %s, skipping", user.id, "demo" if demo else "live")
-        return
+    """Execute auto-trading logic for one user, routing to the configured venue."""
+    venue = getattr(cfg, "execution_venue", None) or ("bybit_demo" if getattr(cfg, "demo", True) else "bybit_live")
+    is_drift = (venue == "drift")
+    demo = (venue == "bybit_demo")
 
     allowed_symbols = set(s.strip() for s in cfg.symbols.split(",") if s.strip())
 
-    # Latest signal per symbol (signals list is already newest-first from the refresh)
+    # Latest signal per symbol
     latest: dict[str, Signal] = {}
     for sig in signals:
         if sig.ticker not in latest and sig.ticker in allowed_symbols:
             latest[sig.ticker] = sig
+
+    # ── Drift (Solana on-chain) ───────────────────────────────────────────
+    if is_drift:
+        pk_enc  = decrypt_key(getattr(cfg, "solana_private_key", None))
+        rpc_url = getattr(cfg, "solana_rpc_url", None) or ""
+        if not pk_enc:
+            log.debug("user %s: no Solana key for Drift, skipping", user.id)
+            return
+        try:
+            wallet = await solana_trader.get_balance(cfg.solana_private_key, rpc_url)
+            equity = float(wallet.get("equity", 0))
+        except Exception as e:
+            log.warning("user %s: Drift balance failed: %s", user.id, e)
+            return
+        if equity < solana_trader.MIN_COLLATERAL_USDC:
+            log.warning("user %s: Drift equity $%.2f below minimum, skipping", user.id, equity)
+            return
+        try:
+            live_positions = await solana_trader.get_positions(cfg.solana_private_key, rpc_url)
+        except Exception as e:
+            log.warning("user %s: Drift positions failed: %s", user.id, e)
+            return
+        pos_map: dict[str, dict] = {p["symbol"]: p for p in live_positions}
+
+        async with async_session() as db:
+            # Close flipped/low-confidence positions
+            for symbol, pos in list(pos_map.items()):
+                if symbol not in allowed_symbols:
+                    continue
+                sig = latest.get(symbol)
+                if sig is None:
+                    continue
+                current_side = pos["side"]
+                signal_side  = "Buy" if sig.action == "BUY" else "Sell"
+                should_close = (sig.confidence >= cfg.confidence_threshold and signal_side != current_side) \
+                               or sig.confidence < cfg.confidence_threshold
+                if should_close:
+                    try:
+                        res = await solana_trader.close_position(
+                            symbol, current_side, str(pos["size"]),
+                            private_key_enc=cfg.solana_private_key, rpc_url=rpc_url,
+                        )
+                        await _log(db, user.id, symbol, "CLOSE", current_side, str(pos["size"]),
+                                   sig.confidence, order_id=res.get("order_id"), status="filled")
+                        log.info("drift CLOSE %s %s qty=%s user=%s", current_side, symbol, pos["size"], user.id)
+                        pos_map.pop(symbol, None)
+                    except Exception as e:
+                        await _log(db, user.id, symbol, "CLOSE", current_side, str(pos["size"]),
+                                   sig.confidence, status="error", error=str(e))
+                        log.warning("drift CLOSE failed %s: %s", symbol, e)
+
+            open_count = len([s for s in pos_map if s in allowed_symbols])
+
+            # Open new positions
+            for symbol, sig in latest.items():
+                if open_count >= cfg.max_positions:
+                    break
+                if sig.confidence < cfg.confidence_threshold:
+                    continue
+                if symbol not in solana_trader.DRIFT_MARKET_INDEX:
+                    continue  # symbol not on Drift
+                if symbol in pos_map:
+                    continue
+                side = "Buy" if sig.action == "BUY" else "Sell"
+                # Use equity × size_pct as USDC notional; divide by oracle price for qty
+                # For simplicity use the Bybit ticker price as reference
+                try:
+                    tickers = await bybit.get_symbols()
+                    price_map = {t["symbol"]: float(t["last_price"]) for t in tickers}
+                    price = price_map.get(symbol, 0)
+                    if price <= 0:
+                        continue
+                except Exception:
+                    continue
+                notional = equity * (cfg.position_size_pct / 100) * cfg.leverage
+                qty_raw = notional / price
+                qty = round(qty_raw, 6 if qty_raw < 1 else 4 if qty_raw < 100 else 2)
+                if qty <= 0:
+                    continue
+                try:
+                    res = await solana_trader.place_order(
+                        symbol, side, str(qty),
+                        private_key_enc=cfg.solana_private_key, rpc_url=rpc_url,
+                    )
+                    open_count += 1
+                    await _log(db, user.id, symbol, "OPEN", side, str(qty),
+                               sig.confidence, order_id=res.get("order_id"), status="filled")
+                    log.info("drift OPEN %s %s qty=%s conf=%.2f user=%s", side, symbol, qty, sig.confidence, user.id)
+                except Exception as e:
+                    await _log(db, user.id, symbol, "OPEN", side, str(qty),
+                               sig.confidence, status="error", error=str(e))
+                    log.warning("drift OPEN failed %s: %s", symbol, e)
+        return
+
+    # ── Bybit (CEX) ───────────────────────────────────────────────────────
+    api_key, api_secret = _keys(user, demo)
+    if not api_key or not api_secret:
+        log.debug("user %s: no keys for %s, skipping", user.id, venue)
+        return
 
     try:
         wallet = await bybit.get_wallet_balance(api_key, api_secret, testnet=False, demo=demo)

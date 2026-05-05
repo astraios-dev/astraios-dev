@@ -15,6 +15,8 @@ from api.db import async_session
 from api.models.signal import Signal
 from api.models.position import Position
 from api.models.user import User
+from datetime import datetime, timezone, timedelta
+
 from api.services.market_data import fetch_prices
 from api.services.signal_engine import generate_signals
 from api.services import auto_trader
@@ -45,6 +47,14 @@ async def refresh_signals():
                     ))
             await db.commit()
         log.info("refreshed signals: %d symbols × %d users", len(signals), len(users))
+
+        # Prune signals older than 48h — keep DB lean
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
+        from sqlalchemy import delete as sa_delete
+        pruned = await db.execute(sa_delete(Signal).where(Signal.created_at < cutoff))
+        if pruned.rowcount:
+            await db.commit()
+            log.info("pruned %d stale signals (>48h)", pruned.rowcount)
 
         # Run auto-trader after signals are written
         await auto_trader.run_all(signals)

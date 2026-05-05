@@ -1,12 +1,12 @@
 """
-Data collection v4:
+Data collection v5 — multi-timeframe:
 
-- Return-quantile labels: top-30% fwd return = BUY, bottom-30% = SELL, middle dropped
-- Per-symbol quantile thresholds (adapts to each symbol's volatility regime)
-- Regime features: vol_regime, trend_strength, btc_correlation
-- Richer cross-asset: btc_dominance_proxy, funding_divergence, btc_corr_20
-- 3-year history for major symbols (BTC/ETH/BNB/SOL/XRP), 18mo for alts
-- Extended symbol list (29 symbols)
+- 3 timeframes per symbol: 15m (momentum), 1h (trend), 4h (regime)
+- Each timeframe gets the same 28-feature set, prefixed m15_ / h1_ / h4_
+- Features aligned to 1h master timestamps via forward-fill
+- Total: 84 features per row (28 × 3 timeframes)
+- Return-quantile labels on 1h bars (24-bar forward return, top/bottom 30%)
+- Quality gate: skip symbols with >50% zero returns
 """
 
 import sys
@@ -323,6 +323,23 @@ def engineer_features(df):
     return df
 
 
+def engineer_features_tf(df, prefix):
+    """Engineer features for a non-primary timeframe and return as a prefixed Series dict.
+
+    Returns a dict {prefixed_col: np.array} aligned to df.index.
+    """
+    feats = {}
+    df = df.copy()
+    engineer_features(df)  # adds columns in-place
+
+    for col in BASE_FEATURE_COLS:
+        if col in df.columns:
+            feats[f"{prefix}_{col}"] = df[col].values
+        else:
+            feats[f"{prefix}_{col}"] = np.zeros(len(df))
+    return feats
+
+
 def quantile_label(df, horizon=24, buy_quantile=0.70, sell_quantile=0.30):
     """Per-symbol return-quantile labels.
 
@@ -363,7 +380,8 @@ def quantile_label(df, horizon=24, buy_quantile=0.70, sell_quantile=0.30):
     return df
 
 
-FEATURE_COLS = [
+# Per-timeframe features (28) — same set applied at 15m, 1h, 4h
+BASE_FEATURE_COLS = [
     # Price action (5)
     "returns",
     "ema_ratio_8", "ema_ratio_21", "ema_ratio_50",
@@ -392,100 +410,196 @@ FEATURE_COLS = [
     "btc_corr_20", "funding_divergence",
 ]
 
+# Multi-timeframe feature columns: 1h (primary) · 15m (momentum) · 4h (regime)
+# Total: 28 × 3 = 84 features per row
+FEATURE_COLS = (
+    [f"h1_{c}" for c in BASE_FEATURE_COLS] +
+    [f"m15_{c}" for c in BASE_FEATURE_COLS] +
+    [f"h4_{c}" for c in BASE_FEATURE_COLS]
+)
 
-def _build_btc_reference(btc_df):
-    """Build BTC cross-asset features indexed by timestamp."""
+
+def _build_btc_cross_asset(btc_df):
+    """Compute BTC cross-asset columns indexed by timestamp (for any timeframe)."""
     c = btc_df["close"]
     ret = c.pct_change().fillna(0)
     ref = pd.DataFrame({"timestamp": btc_df["timestamp"]})
-    ref["btc_returns"]     = ret
-    ref["btc_mom_5"]       = (c / c.shift(5) - 1).fillna(0)
-    ref["btc_vol_ratio"]   = (ret.rolling(5).std() / ret.rolling(20).std().replace(0, 1e-9)).fillna(1).clip(0, 5)
-    # BTC trend regime: 1 if above 50-EMA, -1 if below, 0 at threshold
+    ref["btc_returns"]   = ret.values
+    ref["btc_mom_5"]     = (c / c.shift(5) - 1).fillna(0).values
+    ref["btc_vol_ratio"] = (ret.rolling(5).std() / ret.rolling(20).std().replace(0, 1e-9)).fillna(1).clip(0, 5).values
     ema50 = c.ewm(span=50, adjust=False).mean()
-    ref["btc_trend"]       = np.sign(c.values - ema50.values).astype(np.float32)
-    # Funding-rate proxy via BTC (will be enriched per-symbol below)
-    if "funding_rate" in btc_df.columns:
-        ref["btc_funding"]  = btc_df["funding_rate"].ffill().fillna(0)
-    else:
-        ref["btc_funding"]  = 0.0
+    ref["btc_trend"]     = np.sign(c.values - ema50.values).astype(np.float32)
+    ref["btc_funding"]   = btc_df["funding_rate"].ffill().fillna(0).values if "funding_rate" in btc_df.columns else 0.0
     return ref.set_index("timestamp")
 
 
+def _add_btc_cross_asset_to_tf(df_1h, btc_ref_tf, tf_prefix):
+    """Align BTC cross-asset features from btc_ref_tf into df_1h, adding prefixed columns."""
+    if btc_ref_tf is None:
+        for col in ["btc_returns","btc_mom_5","btc_vol_ratio","btc_trend","btc_funding","btc_corr_20","funding_divergence"]:
+            df_1h[f"{tf_prefix}_{col}"] = 0.0
+        return df_1h
+
+    # Align BTC reference to 1h timestamps
+    btc_aligned = btc_ref_tf.reindex(df_1h["timestamp"].values).ffill().fillna(0)
+    for col in btc_ref_tf.columns:
+        df_1h[f"{tf_prefix}_{col}"] = btc_aligned[col].values
+
+    # Rolling 20-bar correlation vs BTC at this TF (using h1 returns as base)
+    sym_ret = pd.Series(df_1h[f"{tf_prefix}_returns"].values if f"{tf_prefix}_returns" in df_1h.columns
+                        else df_1h["returns"].values)
+    btc_ret = pd.Series(df_1h[f"{tf_prefix}_btc_returns"].values)
+    df_1h[f"{tf_prefix}_btc_corr_20"] = sym_ret.rolling(20, min_periods=10).corr(btc_ret).fillna(0)
+
+    # Funding divergence
+    fr_sym_col = f"{tf_prefix}_funding_rate"
+    fr_sym = df_1h[fr_sym_col].values if fr_sym_col in df_1h.columns else np.zeros(len(df_1h))
+    fr_btc = df_1h[f"{tf_prefix}_btc_funding"].values if f"{tf_prefix}_btc_funding" in df_1h.columns else np.zeros(len(df_1h))
+    df_1h[f"{tf_prefix}_funding_divergence"] = fr_sym - fr_btc
+    return df_1h
+
+
+_ENGINEERED_COLS = [
+    "returns", "ema_ratio_8", "ema_ratio_21", "ema_ratio_50", "close_position",
+    "rsi_14", "macd_hist", "bb_pct", "mom_20",
+    "atr_norm", "rolling_vol_5", "rolling_vol_20",
+    "vol_ratio", "taker_buy_ratio", "taker_buy_pressure",
+    "ret_lag_1", "ret_lag_3",
+    "funding_rate", "funding_rate_ma8",
+    "vol_regime", "trend_strength", "price_vs_sma200",
+]
+_CROSS_ASSET_COLS = [
+    "btc_returns", "btc_mom_5", "btc_vol_ratio", "btc_trend",
+    "btc_corr_20", "funding_divergence",
+]
+
+
+def _align_tf_to_1h(df_tf, df_1h_ts, tf_prefix):
+    """Engineer features on a secondary TF dataframe and align to 1h timestamps.
+
+    Cross-asset columns (btc_*, btc_corr_20, funding_divergence) are excluded here
+    and handled separately by _add_btc_cross_asset_to_tf.
+    """
+    df_tf = engineer_features(df_tf.copy())
+    df_tf_indexed = df_tf.set_index("timestamp")
+
+    # Select only columns that engineer_features actually produces
+    avail = [c for c in _ENGINEERED_COLS if c in df_tf_indexed.columns]
+    aligned = df_tf_indexed[avail].reindex(df_1h_ts).ffill().fillna(0)
+
+    result = pd.DataFrame(index=range(len(df_1h_ts)))
+    for col in BASE_FEATURE_COLS:
+        if col in avail:
+            result[f"{tf_prefix}_{col}"] = aligned[col].values
+        else:
+            result[f"{tf_prefix}_{col}"] = 0.0
+    return result
+
+
 def build_dataset():
-    bybit_client = get_bybit_client()
     all_dfs = []
 
-    # Fetch BTC first for cross-asset features (3-year window)
-    print("Fetching BTC reference data for cross-asset features...")
-    btc_klines = fetch_binance_klines("BTCUSDT", "1h", MAX_CANDLES_LONG, start_ms=_start_ms(RECENCY_MONTHS_LONG))
-    btc_klines_with_funding = btc_klines.copy()
+    # ── Fetch BTC reference at all 3 timeframes ──────────────────────────
+    print("Fetching BTC reference data (3 timeframes)...")
     btc_fr_df = fetch_binance_funding("BTCUSDT", 10000)
-    if not btc_fr_df.empty:
-        btc_fr_indexed = btc_fr_df.set_index("timestamp").reindex(btc_klines["timestamp"]).ffill().bfill()
-        btc_klines_with_funding["funding_rate"] = btc_fr_indexed["funding_rate"].values
-    btc_ref = _build_btc_reference(btc_klines_with_funding) if not btc_klines.empty else None
-    if btc_ref is not None:
-        print(f"  BTC reference: {len(btc_ref)} bars")
+
+    btc_refs = {}
+    for tf, interval, max_c, months in [
+        ("h1",  "1h",  MAX_CANDLES_LONG,   RECENCY_MONTHS_LONG),
+        ("m15", "15m", MAX_CANDLES_LONG*4,  RECENCY_MONTHS_LONG),  # 4× more 15m bars
+        ("h4",  "4h",  MAX_CANDLES_LONG//4, RECENCY_MONTHS_LONG),
+    ]:
+        btc_kl = fetch_binance_klines("BTCUSDT", interval, max_c, start_ms=_start_ms(months))
+        if not btc_kl.empty:
+            if not btc_fr_df.empty:
+                fr_idx = btc_fr_df.set_index("timestamp").reindex(btc_kl["timestamp"]).ffill().bfill()
+                btc_kl["funding_rate"] = fr_idx["funding_rate"].values
+            btc_refs[tf] = _build_btc_cross_asset(btc_kl)
+            print(f"  BTC {tf}: {len(btc_kl)} bars")
+        else:
+            btc_refs[tf] = None
 
     for symbol in SYMBOLS:
         print(f"\n{'='*50}")
         print(f"Fetching {symbol}...")
         try:
-            # 1. Binance klines — longer history for major symbols
+            # ── 1h primary klines ────────────────────────────────────────
             is_long = symbol in LONG_HISTORY_SYMBOLS
             max_candles = MAX_CANDLES_LONG if is_long else MAX_CANDLES_SHORT
             recency_months = RECENCY_MONTHS_LONG if is_long else RECENCY_MONTHS_SHORT
-            df = fetch_binance_klines(symbol, "1h", max_candles, start_ms=_start_ms(recency_months))
-            if df.empty or len(df) < 200:
-                print(f"  skipped (insufficient klines: {len(df)})")
+            df_1h = fetch_binance_klines(symbol, "1h", max_candles, start_ms=_start_ms(recency_months))
+            if df_1h.empty or len(df_1h) < 200:
+                print(f"  skipped (insufficient 1h klines: {len(df_1h)})")
                 continue
-            # Quality gate: skip illiquid/delisted symbols with too many zero-return bars
-            nonzero_frac = (df["close"].pct_change().fillna(0) != 0).mean()
+            nonzero_frac = (df_1h["close"].pct_change().fillna(0) != 0).mean()
             if nonzero_frac < MIN_NONZERO_RETURN_FRAC:
-                print(f"  skipped (illiquid: {nonzero_frac:.1%} non-zero returns < {MIN_NONZERO_RETURN_FRAC:.0%} threshold)")
+                print(f"  skipped (illiquid: {nonzero_frac:.1%} non-zero returns)")
                 continue
-            print(f"  Binance klines: {len(df)} ({len(df)//24} days, {nonzero_frac:.0%} active bars)")
+            print(f"  1h klines: {len(df_1h)} ({len(df_1h)//24} days, {nonzero_frac:.0%} active)")
 
-            # 2. Binance funding rates — merge into klines
+            # ── Funding rates → 1h ───────────────────────────────────────
             fr_df = fetch_binance_funding(symbol, 10000)
             if not fr_df.empty:
-                fr_df = fr_df.set_index("timestamp").reindex(df["timestamp"]).ffill().bfill()
-                df["funding_rate"] = fr_df["funding_rate"].values
-                print(f"  Binance funding: {len(fr_df)} records")
+                fr_idx = fr_df.set_index("timestamp").reindex(df_1h["timestamp"]).ffill().bfill()
+                df_1h["funding_rate"] = fr_idx["funding_rate"].values
+                print(f"  Funding: {len(fr_df)} records")
 
-            # 3. Engineer features + labels
-            df = engineer_features(df)
-            df = quantile_label(df)
+            # ── Engineer 1h features + quantile labels ───────────────────
+            df_1h = engineer_features(df_1h)
+            df_1h = quantile_label(df_1h)
+            df_1h_ts = df_1h["timestamp"].values
 
-            # 4. Merge BTC cross-asset features
-            if btc_ref is not None:
-                btc_aligned = btc_ref.reindex(df["timestamp"].values).fillna(0)
-                for col in btc_ref.columns:
-                    df[col] = btc_aligned[col].values
+            # Prefix 1h base features as h1_*
+            for col in BASE_FEATURE_COLS:
+                df_1h[f"h1_{col}"] = df_1h[col].values if col in df_1h.columns else 0.0
 
-                # Rolling 20-bar correlation with BTC returns
-                sym_ret = pd.Series(df["returns"].values)
-                btc_ret = pd.Series(df["btc_returns"].values)
-                df["btc_corr_20"] = sym_ret.rolling(20, min_periods=10).corr(btc_ret).fillna(0)
+            # Add BTC cross-asset for 1h
+            df_1h = _add_btc_cross_asset_to_tf(df_1h, btc_refs.get("h1"), "h1")
 
-                # Funding divergence: symbol funding minus BTC funding
-                fr_sym = df["funding_rate"].values if "funding_rate" in df.columns else np.zeros(len(df))
-                fr_btc = df["btc_funding"].values if "btc_funding" in df.columns else np.zeros(len(df))
-                df["funding_divergence"] = fr_sym - fr_btc
+            # ── 15m klines → align to 1h ─────────────────────────────────
+            df_15m = fetch_binance_klines(symbol, "15m", max_candles * 4, start_ms=_start_ms(recency_months))
+            if not df_15m.empty and len(df_15m) >= 60:
+                if not fr_df.empty:
+                    fr_15m = fr_df.set_index("timestamp").reindex(df_15m["timestamp"]).ffill().bfill()
+                    df_15m["funding_rate"] = fr_15m["funding_rate"].values
+                tf_feats_15m = _align_tf_to_1h(df_15m, df_1h_ts, "m15")
+                for col in tf_feats_15m.columns:
+                    df_1h[col] = tf_feats_15m[col].values
+                df_1h = _add_btc_cross_asset_to_tf(df_1h, btc_refs.get("m15"), "m15")
+                print(f"  15m klines: {len(df_15m)} bars → aligned to {len(df_1h)} 1h rows")
             else:
-                for col in ["btc_returns", "btc_mom_5", "btc_vol_ratio", "btc_trend",
-                            "btc_funding", "btc_corr_20", "funding_divergence"]:
-                    df[col] = 0.0
+                for col in [f"m15_{c}" for c in BASE_FEATURE_COLS]:
+                    df_1h[col] = 0.0
+                for col in ["btc_returns","btc_mom_5","btc_vol_ratio","btc_trend","btc_funding","btc_corr_20","funding_divergence"]:
+                    df_1h[f"m15_{col}"] = 0.0
 
-            df["symbol"] = symbol
-            df = df.replace([np.inf, -np.inf], np.nan).dropna(subset=FEATURE_COLS + ["label"])
-            all_dfs.append(df)
-            dist = dict(df["label"].value_counts().sort_index())
-            print(f"  Final: {len(df)} samples, labels: {dist}")
+            # ── 4h klines → align to 1h ──────────────────────────────────
+            df_4h = fetch_binance_klines(symbol, "4h", max_candles // 4, start_ms=_start_ms(recency_months))
+            if not df_4h.empty and len(df_4h) >= 50:
+                if not fr_df.empty:
+                    fr_4h = fr_df.set_index("timestamp").reindex(df_4h["timestamp"]).ffill().bfill()
+                    df_4h["funding_rate"] = fr_4h["funding_rate"].values
+                tf_feats_4h = _align_tf_to_1h(df_4h, df_1h_ts, "h4")
+                for col in tf_feats_4h.columns:
+                    df_1h[col] = tf_feats_4h[col].values
+                df_1h = _add_btc_cross_asset_to_tf(df_1h, btc_refs.get("h4"), "h4")
+                print(f"  4h klines: {len(df_4h)} bars → aligned to {len(df_1h)} 1h rows")
+            else:
+                for col in [f"h4_{c}" for c in BASE_FEATURE_COLS]:
+                    df_1h[col] = 0.0
+                for col in ["btc_returns","btc_mom_5","btc_vol_ratio","btc_trend","btc_funding","btc_corr_20","funding_divergence"]:
+                    df_1h[f"h4_{col}"] = 0.0
+
+            df_1h["symbol"] = symbol
+            df_1h = df_1h.replace([np.inf, -np.inf], np.nan).dropna(subset=FEATURE_COLS + ["label"])
+            all_dfs.append(df_1h)
+            dist = dict(df_1h["label"].value_counts().sort_index())
+            print(f"  Final: {len(df_1h)} samples, labels: {dist}")
 
         except Exception as e:
+            import traceback
             print(f"  ERROR {symbol}: {e}")
+            traceback.print_exc()
             continue
 
     dataset = pd.concat(all_dfs, ignore_index=True)

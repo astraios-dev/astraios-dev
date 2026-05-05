@@ -102,6 +102,74 @@ async def remove_testnet_keys(
     return {"status": "ok"}
 
 
+class SolanaVerifyRequest(BaseModel):
+    solana_private_key: str
+
+
+class SolanaKeysRequest(BaseModel):
+    solana_private_key: str   # base58 private key
+    solana_rpc_url: str = ""  # optional custom RPC (Helius/QuickNode)
+
+
+@router.post("/solana-verify")
+async def verify_solana_key(
+    body: SolanaVerifyRequest,
+    user: User = Depends(get_current_user),
+):
+    """Derive pubkey from private key without saving — used for live preview."""
+    try:
+        import base58 as _b58
+        from solders.keypair import Keypair
+        raw = _b58.b58decode(body.solana_private_key)
+        kp = Keypair.from_bytes(raw)
+        pubkey = str(kp.pubkey())
+        return {"valid": True, "pubkey": pubkey}
+    except Exception as e:
+        return {"valid": False, "error": str(e)}
+
+
+@router.post("/solana-keys")
+async def save_solana_keys(
+    body: SolanaKeysRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from api.models.auto_trade import AutoTradeConfig
+    result = await db.execute(select(AutoTradeConfig).where(AutoTradeConfig.user_id == user.id))
+    cfg = result.scalar_one_or_none()
+    if cfg is None:
+        cfg = AutoTradeConfig(user_id=user.id)
+        db.add(cfg)
+    cfg.solana_private_key = encrypt_key(body.solana_private_key)
+    cfg.solana_rpc_url     = body.solana_rpc_url or None
+    await db.commit()
+    # Derive pubkey for hint
+    try:
+        import base58 as _b58
+        from solders.keypair import Keypair
+        raw = _b58.b58decode(body.solana_private_key)
+        pubkey = str(Keypair.from_bytes(raw).pubkey())
+        hint = f"{pubkey[:4]}...{pubkey[-4:]}"
+    except Exception:
+        hint = "saved"
+    return {"status": "ok", "pubkey_hint": hint}
+
+
+@router.delete("/solana-keys")
+async def remove_solana_keys(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from api.models.auto_trade import AutoTradeConfig
+    result = await db.execute(select(AutoTradeConfig).where(AutoTradeConfig.user_id == user.id))
+    cfg = result.scalar_one_or_none()
+    if cfg:
+        cfg.solana_private_key = None
+        cfg.solana_rpc_url     = None
+        await db.commit()
+    return {"status": "ok"}
+
+
 @router.get("/model-info")
 async def model_info(user: User = Depends(get_current_user)):
     import os, json

@@ -14,6 +14,13 @@ class AutoTradeConfig(Base):
     testnet: Mapped[bool] = mapped_column(Boolean, default=False)
     demo: Mapped[bool] = mapped_column(Boolean, default=True)
 
+    # Execution venue: "bybit_demo" | "bybit_live" | "drift"
+    execution_venue: Mapped[str] = mapped_column(String(20), default="bybit_demo")
+
+    # Solana/Drift keys (Fernet-encrypted, stored only when venue=drift)
+    solana_private_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    solana_rpc_url: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
     confidence_threshold: Mapped[float] = mapped_column(Float, default=0.65)
     max_positions: Mapped[int] = mapped_column(Integer, default=3)
     position_size_pct: Mapped[float] = mapped_column(Float, default=5.0)

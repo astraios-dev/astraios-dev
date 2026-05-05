@@ -1,3 +1,4 @@
+from datetime import datetime, timezone, timedelta
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, func
@@ -11,6 +12,9 @@ from api.services.auth import get_current_user
 
 router = APIRouter(prefix="/signals", tags=["signals"])
 
+# Only show signals from the last 2 refresh cycles (30 min) — prevents stale data
+SIGNAL_MAX_AGE_HOURS = 2
+
 
 @router.get("", response_model=list[SignalResponse])
 async def list_signals(
@@ -18,16 +22,27 @@ async def list_signals(
     db: AsyncSession = Depends(get_db),
 ):
     crypto_filter = Signal.ticker.like("%USDT%")
+    freshness_cutoff = datetime.now(timezone.utc) - timedelta(hours=SIGNAL_MAX_AGE_HOURS)
+
+    # Latest signal per USDT ticker for this user, within the freshness window
     latest_subq = (
         select(Signal.ticker, func.max(Signal.created_at).label("max_ts"))
-        .where(Signal.user_id == user.id, crypto_filter)
+        .where(
+            Signal.user_id == user.id,
+            crypto_filter,
+            Signal.created_at >= freshness_cutoff,
+        )
         .group_by(Signal.ticker)
         .subquery()
     )
     result = await db.execute(
         select(Signal)
-        .join(latest_subq, (Signal.ticker == latest_subq.c.ticker) & (Signal.created_at == latest_subq.c.max_ts))
-        .where(Signal.user_id == user.id)
+        .join(
+            latest_subq,
+            (Signal.ticker == latest_subq.c.ticker) &
+            (Signal.created_at == latest_subq.c.max_ts) &
+            (Signal.user_id == user.id),  # critical: scope to this user only
+        )
         .order_by(Signal.confidence.desc())
     )
     return [

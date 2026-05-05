@@ -21,32 +21,32 @@ SYMBOLS = [
     "DOGEUSDT", "LTCUSDT", "TRXUSDT", "XRPUSDT",
     # Tier 2 — moderate edge (55–57%), signals shown but not auto-traded by default
     "AVAXUSDT", "LINKUSDT", "ADAUSDT", "DOTUSDT",
-    "MATICUSDT", "AAVEUSDT",
+    "AAVEUSDT", "SEIUSDT",
+    # MATICUSDT excluded — delisted/renamed to POL on Bybit, returns 0 bars
     # Tier 3 — below baseline, signals informational only
     "SUIUSDT", "ARBUSDT", "1000PEPEUSDT", "WIFUSDT",
     "NEARUSDT", "INJUSDT",
     # FTMUSDT excluded — model overfit (100% acc / 0% directional), unreliable
 ]
 
-FEATURE_COLS = [
-    "returns",
-    "ema_ratio_8", "ema_ratio_21", "ema_ratio_50",
-    "close_position",
-    "rsi_14",
-    "macd_hist",
-    "bb_pct",
-    "mom_20",
-    "atr_norm",
-    "rolling_vol_5", "rolling_vol_20",
-    "vol_ratio",
-    "taker_buy_ratio", "taker_buy_pressure",
+_BASE_FEATURES = [
+    "returns", "ema_ratio_8", "ema_ratio_21", "ema_ratio_50", "close_position",
+    "rsi_14", "macd_hist", "bb_pct", "mom_20",
+    "atr_norm", "rolling_vol_5", "rolling_vol_20",
+    "vol_ratio", "taker_buy_ratio", "taker_buy_pressure",
     "ret_lag_1", "ret_lag_3",
     "funding_rate", "funding_rate_ma8",
-    "btc_returns", "btc_mom_5",
-    "btc_vol_ratio", "btc_trend",
+    "btc_returns", "btc_mom_5", "btc_vol_ratio", "btc_trend",
     "vol_regime", "trend_strength", "price_vs_sma200",
     "btc_corr_20", "funding_divergence",
 ]
+
+# Runtime FEATURE_COLS — overridden from config.json if present (handles v5 single-TF models)
+FEATURE_COLS = (
+    [f"h1_{c}"  for c in _BASE_FEATURES] +
+    [f"m15_{c}" for c in _BASE_FEATURES] +
+    [f"h4_{c}"  for c in _BASE_FEATURES]
+)
 
 LABEL_MAP_2 = {0: "SELL", 1: "BUY"}
 LABEL_MAP_3 = {0: "SELL", 1: "HOLD", 2: "BUY"}
@@ -58,7 +58,7 @@ _scaler_scale = None
 
 
 def _load_model():
-    global _model, _config, _scaler_mean, _scaler_scale
+    global _model, _config, _scaler_mean, _scaler_scale, FEATURE_COLS
     if _model is not None:
         return True
 
@@ -73,6 +73,10 @@ def _load_model():
 
         with open(config_path) as f:
             _config = json.load(f)
+
+        # Use feature cols from config — handles both v5 (28 single-TF) and v6 (84 MTF)
+        if "feature_cols" in _config:
+            FEATURE_COLS = _config["feature_cols"]
 
         _scaler_mean = np.array(_config["scaler"]["mean"], dtype=np.float32)
         _scaler_scale = np.array(_config["scaler"]["scale"], dtype=np.float32)
@@ -92,6 +96,9 @@ def _load_model():
         model.load_state_dict(state)
         model.eval()
         _model = model
+        mtf = _config["n_features"] > 30
+        print(f"[signal_engine] Loaded {'MTF 84-feature' if mtf else 'single-TF 28-feature'} model, "
+              f"val_acc={_config.get('best_val_acc', 0):.3f}")
         return True
     except Exception as e:
         print(f"[signal_engine] Failed to load model: {e}")
@@ -253,33 +260,30 @@ def _feats_to_matrix(feats):
     return np.column_stack([feats[col] for col in FEATURE_COLS]).astype(np.float32)
 
 
-def _predict_symbol(closes, highs, lows, volumes, taker_buy_ratios=None,
-                    funding_rates=None, open_interests=None, ls_ratios=None,
-                    btc_returns=None, btc_mom_5=None,
-                    btc_vol_ratio=None, btc_trend=None, btc_funding=None,
-                    seq_len=32):
-    import torch
+def _align_arr(arr, n, fill):
+    if arr is not None and len(arr) > 0:
+        a = np.array(arr, dtype=np.float32)
+        if len(a) >= n:
+            return a[-n:]
+        return np.concatenate([np.full(n - len(a), fill, dtype=np.float32), a])
+    return np.full(n, fill, dtype=np.float32)
 
+
+def _build_tf_feature_vector(closes, highs, lows, volumes, funding_rates,
+                              btc_returns, btc_mom_5, btc_vol_ratio, btc_trend, btc_funding,
+                              n_1h):
+    """Engineer 28 base features for any TF and align (ffill) to n_1h length."""
     n = len(closes)
-    feats = _engineer(closes, highs, lows, volumes, taker_buy_ratios)
-    feats = _add_market_microstructure(feats, funding_rates, open_interests, ls_ratios, n)
+    feats = _engineer(closes, highs, lows, volumes, None)
+    feats = _add_market_microstructure(feats, funding_rates, None, None, n)
 
-    def _align(arr, n, fill):
-        if arr is not None and len(arr) > 0:
-            a = np.array(arr, dtype=np.float32)
-            if len(a) >= n:
-                return a[-n:]
-            return np.concatenate([np.full(n - len(a), fill, dtype=np.float32), a])
-        return np.full(n, fill, dtype=np.float32)
+    feats["btc_returns"]   = _align_arr(btc_returns, n, 0.0)
+    feats["btc_mom_5"]     = _align_arr(btc_mom_5, n, 0.0)
+    feats["btc_vol_ratio"] = _align_arr(btc_vol_ratio, n, 1.0)
+    feats["btc_trend"]     = _align_arr(btc_trend, n, 0.0)
 
-    feats["btc_returns"]   = _align(btc_returns, n, 0.0)
-    feats["btc_mom_5"]     = _align(btc_mom_5, n, 0.0)
-    feats["btc_vol_ratio"] = _align(btc_vol_ratio, n, 1.0)
-    feats["btc_trend"]     = _align(btc_trend, n, 0.0)
-
-    # Regime features from engineered data
     ret = feats["returns"]
-    rv5  = np.array([np.std(ret[max(0,i-4):i+1]) for i in range(n)], dtype=np.float32)
+    rv5  = np.array([np.std(ret[max(0,i-4):i+1])  for i in range(n)], dtype=np.float32)
     rv20 = np.array([np.std(ret[max(0,i-19):i+1]) for i in range(n)], dtype=np.float32)
     feats["vol_regime"] = np.clip(rv5 / np.maximum(rv20, 1e-9), 0, 5)
 
@@ -291,32 +295,139 @@ def _predict_symbol(closes, highs, lows, volumes, taker_buy_ratios=None,
     sma200 = np.array([np.mean(closes[max(0,i-199):i+1]) for i in range(n)], dtype=np.float32)
     feats["price_vs_sma200"] = np.clip((closes - sma200) / np.maximum(sma200, 1e-9), -1, 1)
 
-    # Rolling correlation with BTC
-    btc_ret = _align(btc_returns, n, 0.0)
-    sym_ret = ret
+    btc_ret = _align_arr(btc_returns, n, 0.0)
     corr = np.zeros(n, dtype=np.float32)
     for i in range(20, n):
-        s = sym_ret[i-20:i]; b = btc_ret[i-20:i]
+        s = ret[i-20:i]; b = btc_ret[i-20:i]
         ss, sb = np.std(s), np.std(b)
         if ss > 0 and sb > 0:
             corr[i] = float(np.corrcoef(s, b)[0, 1])
     feats["btc_corr_20"] = corr
 
-    # Funding divergence: symbol funding - BTC funding
     sym_fr = feats.get("funding_rate", np.zeros(n))
-    btc_fr = _align(btc_funding, n, 0.0)
+    btc_fr = _align_arr(btc_funding, n, 0.0)
     feats["funding_divergence"] = sym_fr - btc_fr
 
-    feat_matrix = _feats_to_matrix(feats)
-    feat_matrix = np.nan_to_num(feat_matrix, nan=0.0, posinf=0.0, neginf=0.0)
+    # Stack into matrix and forward-fill to n_1h length
+    mat = np.column_stack([feats.get(c, np.zeros(n)) for c in _BASE_FEATURES]).astype(np.float32)
+    mat = np.nan_to_num(mat, nan=0.0, posinf=0.0, neginf=0.0)
+
+    if n == 0 or n_1h == 0:
+        return np.zeros((n_1h, len(_BASE_FEATURES)), dtype=np.float32)
+
+    if n >= n_1h:
+        # Downsample: take evenly-spaced rows to match 1h length
+        idx = np.linspace(0, n - 1, n_1h, dtype=int)
+        return mat[idx]
+    else:
+        # Upsample: ffill by repeating each TF bar to cover 1h resolution
+        factor = max(n_1h // n, 1)
+        remainder = n_1h - n * factor
+        repeated = np.repeat(mat, factor, axis=0)
+        if remainder > 0:
+            repeated = np.vstack([repeated, np.tile(mat[-1], (remainder, 1))])
+        return repeated[:n_1h]
+
+
+def _predict_symbol(closes, highs, lows, volumes, taker_buy_ratios=None,
+                    funding_rates=None, open_interests=None, ls_ratios=None,
+                    btc_returns=None, btc_mom_5=None,
+                    btc_vol_ratio=None, btc_trend=None, btc_funding=None,
+                    seq_len=32,
+                    # Secondary TF arrays (MTF model only)
+                    closes_15m=None, highs_15m=None, lows_15m=None, volumes_15m=None,
+                    funding_15m=None,
+                    closes_4h=None, highs_4h=None, lows_4h=None, volumes_4h=None,
+                    funding_4h=None,
+                    btc_returns_15m=None, btc_trend_15m=None,
+                    btc_returns_4h=None, btc_trend_4h=None):
+    import torch
+
+    n = len(closes)
+    is_mtf = _config is not None and _config.get("n_features", 28) > 30
+
+    # ── 1h features (primary) ────────────────────────────────────────────
+    feats_h1 = _engineer(closes, highs, lows, volumes, taker_buy_ratios)
+    feats_h1 = _add_market_microstructure(feats_h1, funding_rates, open_interests, ls_ratios, n)
+
+    feats_h1["btc_returns"]   = _align_arr(btc_returns, n, 0.0)
+    feats_h1["btc_mom_5"]     = _align_arr(btc_mom_5, n, 0.0)
+    feats_h1["btc_vol_ratio"] = _align_arr(btc_vol_ratio, n, 1.0)
+    feats_h1["btc_trend"]     = _align_arr(btc_trend, n, 0.0)
+
+    ret = feats_h1["returns"]
+    rv5  = np.array([np.std(ret[max(0,i-4):i+1])  for i in range(n)], dtype=np.float32)
+    rv20 = np.array([np.std(ret[max(0,i-19):i+1]) for i in range(n)], dtype=np.float32)
+    feats_h1["vol_regime"] = np.clip(rv5 / np.maximum(rv20, 1e-9), 0, 5)
+
+    ema50 = feats_h1.get("ema_50", np.full(n, closes[-1]))
+    atr14 = feats_h1.get("atr_14", np.ones(n))
+    slope = np.concatenate([[0.0]*5, (ema50[5:] - ema50[:-5]) / np.maximum(atr14[5:], 1e-9)])
+    feats_h1["trend_strength"] = np.clip(slope, -5, 5)
+
+    sma200 = np.array([np.mean(closes[max(0,i-199):i+1]) for i in range(n)], dtype=np.float32)
+    feats_h1["price_vs_sma200"] = np.clip((closes - sma200) / np.maximum(sma200, 1e-9), -1, 1)
+
+    btc_ret = _align_arr(btc_returns, n, 0.0)
+    corr = np.zeros(n, dtype=np.float32)
+    for i in range(20, n):
+        s = ret[i-20:i]; b = btc_ret[i-20:i]
+        if np.std(s) > 0 and np.std(b) > 0:
+            corr[i] = float(np.corrcoef(s, b)[0, 1])
+    feats_h1["btc_corr_20"] = corr
+
+    sym_fr = feats_h1.get("funding_rate", np.zeros(n))
+    btc_fr = _align_arr(btc_funding, n, 0.0)
+    feats_h1["funding_divergence"] = sym_fr - btc_fr
+
+    mat_h1 = np.column_stack([feats_h1.get(c, np.zeros(n)) for c in _BASE_FEATURES]).astype(np.float32)
+    mat_h1 = np.nan_to_num(mat_h1, nan=0.0, posinf=0.0, neginf=0.0)
+
+    if is_mtf:
+        # ── 15m features ────────────────────────────────────────────────
+        if closes_15m is not None and len(closes_15m) >= 20:
+            _n15 = len(closes_15m)
+            mat_m15 = _build_tf_feature_vector(
+                closes_15m,
+                highs_15m    if highs_15m    is not None else closes_15m,
+                lows_15m     if lows_15m     is not None else closes_15m,
+                volumes_15m  if volumes_15m  is not None else np.ones(_n15, dtype=np.float32),
+                funding_15m,
+                btc_returns_15m if btc_returns_15m is not None else btc_returns,
+                btc_mom_5, btc_vol_ratio,
+                btc_trend_15m   if btc_trend_15m   is not None else btc_trend,
+                btc_funding, n)
+        else:
+            mat_m15 = np.zeros((n, len(_BASE_FEATURES)), dtype=np.float32)
+
+        # ── 4h features ─────────────────────────────────────────────────
+        if closes_4h is not None and len(closes_4h) >= 10:
+            _n4 = len(closes_4h)
+            mat_h4 = _build_tf_feature_vector(
+                closes_4h,
+                highs_4h    if highs_4h    is not None else closes_4h,
+                lows_4h     if lows_4h     is not None else closes_4h,
+                volumes_4h  if volumes_4h  is not None else np.ones(_n4, dtype=np.float32),
+                funding_4h,
+                btc_returns_4h if btc_returns_4h is not None else btc_returns,
+                btc_mom_5, btc_vol_ratio,
+                btc_trend_4h   if btc_trend_4h   is not None else btc_trend,
+                btc_funding, n)
+        else:
+            mat_h4 = np.zeros((n, len(_BASE_FEATURES)), dtype=np.float32)
+
+        feat_matrix = np.hstack([mat_h1, mat_m15, mat_h4])
+    else:
+        feat_matrix = mat_h1
 
     feat_matrix = (feat_matrix - _scaler_mean) / np.maximum(_scaler_scale, 1e-9)
+    feat_matrix = np.clip(feat_matrix, -5.0, 5.0)
 
     if len(feat_matrix) < seq_len:
         return None
 
-    seq = feat_matrix[-seq_len:]
-    x = torch.FloatTensor(seq).unsqueeze(0)
+    seq_input = feat_matrix[-seq_len:]
+    x = torch.FloatTensor(seq_input).unsqueeze(0)
 
     with torch.no_grad():
         logits = _model(x)
@@ -325,12 +436,10 @@ def _predict_symbol(closes, highs, lows, volumes, taker_buy_ratios=None,
     pred_class = int(np.argmax(probs))
     confidence = float(probs[pred_class])
 
-    # Confidence gate: require margin |p_buy - p_sell| > 0.10
-    # Below this threshold the model has no real edge — emit as HOLD equiv
     if _config.get("n_classes") == 2:
         margin = abs(float(probs[1]) - float(probs[0]))
         if margin < 0.10:
-            return None  # caller will skip or fall back to heuristic
+            return None
 
     return pred_class, confidence, probs
 
@@ -399,6 +508,8 @@ async def generate_signals(symbols=None):
         except Exception:
             pass
 
+        is_mtf = _config is not None and _config.get("n_features", 28) > 30
+
         results = []
         for sym in symbols:
             try:
@@ -406,6 +517,8 @@ async def generate_signals(symbols=None):
                 if resp["retCode"] != 0:
                     continue
                 rows = list(reversed(resp["result"]["list"]))
+                if len(rows) < 50:
+                    continue  # delisted or insufficient data
                 closes  = np.array([float(r[4]) for r in rows], dtype=np.float32)
                 highs   = np.array([float(r[2]) for r in rows], dtype=np.float32)
                 lows    = np.array([float(r[3]) for r in rows], dtype=np.float32)
@@ -421,44 +534,125 @@ async def generate_signals(symbols=None):
                 except Exception:
                     pass
 
+                # MTF: fetch 15m and 4h klines for secondary timeframes
+                c15m = h15m = l15m = v15m = None
+                c4h  = h4h  = l4h  = v4h  = None
+                if is_mtf:
+                    try:
+                        r15m = client.get_kline(category="linear", symbol=sym, interval="15", limit=800)
+                        if r15m["retCode"] == 0:
+                            rows15 = list(reversed(r15m["result"]["list"]))
+                            c15m = np.array([float(r[4]) for r in rows15], dtype=np.float32)
+                            h15m = np.array([float(r[2]) for r in rows15], dtype=np.float32)
+                            l15m = np.array([float(r[3]) for r in rows15], dtype=np.float32)
+                            v15m = np.array([float(r[5]) for r in rows15], dtype=np.float32)
+                    except Exception:
+                        pass
+                    try:
+                        r4h = client.get_kline(category="linear", symbol=sym, interval="240", limit=200)
+                        if r4h["retCode"] == 0:
+                            rows4 = list(reversed(r4h["result"]["list"]))
+                            c4h = np.array([float(r[4]) for r in rows4], dtype=np.float32)
+                            h4h = np.array([float(r[2]) for r in rows4], dtype=np.float32)
+                            l4h = np.array([float(r[3]) for r in rows4], dtype=np.float32)
+                            v4h = np.array([float(r[5]) for r in rows4], dtype=np.float32)
+                    except Exception:
+                        pass
+
                 if model_ready:
-                    result = _predict_symbol(closes, highs, lows, volumes,
-                                             taker_buy_ratios, funding_rates,
-                                             None, None,
-                                             btc_returns_arr, btc_mom5_arr,
-                                             btc_vol_ratio_arr, btc_trend_arr, btc_funding_arr,
-                                             _config["seq_len"])
+                    result = _predict_symbol(
+                        closes, highs, lows, volumes,
+                        taker_buy_ratios, funding_rates, None, None,
+                        btc_returns_arr, btc_mom5_arr,
+                        btc_vol_ratio_arr, btc_trend_arr, btc_funding_arr,
+                        _config["seq_len"],
+                        closes_15m=c15m, highs_15m=h15m, lows_15m=l15m, volumes_15m=v15m,
+                        closes_4h=c4h, highs_4h=h4h, lows_4h=l4h, volumes_4h=v4h,
+                    )
                     if result is None:
                         continue
                     pred_class, confidence, probs = result
                     label_map = LABEL_MAP_2 if _config["n_classes"] == 2 else LABEL_MAP_3
                     action = label_map[pred_class]
+                    sell_p = float(probs[0])
+                    buy_p  = float(probs[1]) if len(probs) > 1 else 1 - sell_p
+                    margin = abs(buy_p - sell_p)
 
-                    rationale_parts = [f"Transformer: {action} ({confidence:.0%} conf)"]
-                    if _config["n_classes"] == 2:
-                        sell_p, buy_p = probs[0], probs[1]
-                        rationale_parts.append(f"buy_p={buy_p:.2f} sell_p={sell_p:.2f}")
+                    # ── Build rich structured rationale ──────────────────
+                    parts = []
+
+                    # 1. Model conviction
+                    if margin >= 0.40:
+                        strength = "Strong"
+                    elif margin >= 0.25:
+                        strength = "Moderate"
                     else:
-                        sell_p, hold_p, buy_p = probs[0], probs[1], probs[2]
-                        if action == "BUY":
-                            rationale_parts.append(f"buy_p={buy_p:.2f} vs hold_p={hold_p:.2f}")
-                        elif action == "SELL":
-                            rationale_parts.append(f"sell_p={sell_p:.2f} vs hold_p={hold_p:.2f}")
-                        else:
-                            rationale_parts.append("no clear directional edge")
+                        strength = "Weak"
+                    parts.append(f"{strength} {action} signal ({confidence:.0%} confidence, {margin:.0%} margin)")
 
+                    # 2. Multi-timeframe confluence
+                    tf_clues = []
+                    if c15m is not None and len(c15m) >= 4:
+                        ret_15m = float(c15m[-1] / c15m[-4] - 1) * 100
+                        if (action == "SELL" and ret_15m < -0.3) or (action == "BUY" and ret_15m > 0.3):
+                            tf_clues.append(f"15m momentum {ret_15m:+.1f}% confirms")
+                        elif (action == "SELL" and ret_15m > 0.5) or (action == "BUY" and ret_15m < -0.5):
+                            tf_clues.append(f"15m momentum {ret_15m:+.1f}% diverges")
+                    if c4h is not None and len(c4h) >= 2:
+                        ret_4h = float(c4h[-1] / c4h[-2] - 1) * 100
+                        if (action == "SELL" and ret_4h < 0) or (action == "BUY" and ret_4h > 0):
+                            tf_clues.append(f"4h trend {ret_4h:+.1f}% aligned")
+                        else:
+                            tf_clues.append(f"4h trend {ret_4h:+.1f}% counter")
+                    if tf_clues:
+                        parts.append("; ".join(tf_clues))
+
+                    # 3. RSI context
                     rsi_val = _rsi(closes)
                     if rsi_val > 70:
-                        rationale_parts.append(f"RSI {rsi_val:.0f} overbought")
+                        parts.append(f"RSI {rsi_val:.0f} — overbought, downside risk elevated")
+                    elif rsi_val > 60:
+                        parts.append(f"RSI {rsi_val:.0f} — bullish territory")
                     elif rsi_val < 30:
-                        rationale_parts.append(f"RSI {rsi_val:.0f} oversold")
+                        parts.append(f"RSI {rsi_val:.0f} — oversold, bounce risk elevated")
+                    elif rsi_val < 40:
+                        parts.append(f"RSI {rsi_val:.0f} — bearish territory")
+                    else:
+                        parts.append(f"RSI {rsi_val:.0f} — neutral")
 
+                    # 4. Price position vs recent range
+                    if len(closes) >= 20:
+                        hi20 = float(np.max(highs[-20:]))
+                        lo20 = float(np.min(lows[-20:]))
+                        rng  = hi20 - lo20
+                        pos  = (closes[-1] - lo20) / rng if rng > 0 else 0.5
+                        if pos > 0.80:
+                            parts.append("Near 20-bar high — extended")
+                        elif pos < 0.20:
+                            parts.append("Near 20-bar low — compressed")
+                        else:
+                            parts.append(f"Mid-range ({pos:.0%} of 20-bar range)")
+
+                    # 5. Funding rate
                     if funding_rates and len(funding_rates) > 0:
                         fr = funding_rates[-1]
-                        if abs(fr) > 0.0005:
-                            rationale_parts.append(f"funding {'+' if fr > 0 else ''}{fr*100:.3f}%")
+                        if fr > 0.001:
+                            parts.append(f"Funding +{fr*100:.3f}% — longs paying, bearish lean")
+                        elif fr < -0.001:
+                            parts.append(f"Funding {fr*100:.3f}% — shorts paying, bullish lean")
+                        elif abs(fr) > 0.0003:
+                            parts.append(f"Funding {'+' if fr >= 0 else ''}{fr*100:.3f}%")
 
-                    rationale = ". ".join(rationale_parts) + "."
+                    # 6. BTC context
+                    if btc_returns_arr is not None and len(btc_returns_arr) >= 3:
+                        btc_1h = float(np.sum(btc_returns_arr[-3:])) * 100
+                        if abs(btc_1h) > 0.5:
+                            if (action == "SELL" and btc_1h < 0) or (action == "BUY" and btc_1h > 0):
+                                parts.append(f"BTC {btc_1h:+.1f}% supports signal")
+                            else:
+                                parts.append(f"BTC {btc_1h:+.1f}% diverges from signal")
+
+                    rationale = " · ".join(parts)
                 else:
                     action, confidence, rationale = _score_heuristic(closes)
 

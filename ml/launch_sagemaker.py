@@ -64,7 +64,7 @@ def main():
         "batch-size": "512",
         "lr": "0.0003",
         "seq-len": "48",
-        "d-model": "66",   # divisible by 3 for CNN channels (22+22+22)
+        "d-model": "90",   # 3 CNN paths × 30 channels each
         "n-heads": "2",
         "n-layers": "3",
         "d-ff": "256",

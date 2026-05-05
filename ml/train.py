@@ -1,12 +1,11 @@
 """
-SageMaker training entry point for MarketTransformer v3.
+SageMaker training entry point for MarketTransformer v6 — multi-timeframe.
 
-v3 changes:
-- Binary classification (BUY/SELL, no HOLD)
-- 21 pruned features (dropped dead OI/LS, redundant pairs)
-- Smaller model: d_model=64, 2 heads, 2 layers (less overfitting)
-- Focal loss (handles class imbalance better than label-smoothed CE)
-- Purged walk-forward CV with embargo (prevents label leakage)
+v6 changes:
+- 3 timeframes: 15m (momentum) + 1h (trend) + 4h (regime) = 84 features
+- CNN front-end handles wider input naturally (kernel 3/5/7 unchanged)
+- d_model bumped to 90 (divisible by 3 CNN paths: 30+30+30)
+- Everything else unchanged from v5
 """
 
 import os
@@ -20,34 +19,24 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from sklearn.preprocessing import StandardScaler
 
-FEATURE_COLS = [
-    # Price action (5)
-    "returns",
-    "ema_ratio_8", "ema_ratio_21", "ema_ratio_50",
-    "close_position",
-    # Momentum (4)
-    "rsi_14",
-    "macd_hist",
-    "bb_pct",
-    "mom_20",
-    # Volatility (3)
-    "atr_norm",
-    "rolling_vol_5", "rolling_vol_20",
-    # Volume (3)
-    "vol_ratio",
-    "taker_buy_ratio", "taker_buy_pressure",
-    # Lagged returns (2)
+_BASE = [
+    "returns", "ema_ratio_8", "ema_ratio_21", "ema_ratio_50", "close_position",
+    "rsi_14", "macd_hist", "bb_pct", "mom_20",
+    "atr_norm", "rolling_vol_5", "rolling_vol_20",
+    "vol_ratio", "taker_buy_ratio", "taker_buy_pressure",
     "ret_lag_1", "ret_lag_3",
-    # Microstructure — funding only (2)
     "funding_rate", "funding_rate_ma8",
-    # Cross-asset context (4)
-    "btc_returns", "btc_mom_5",
-    "btc_vol_ratio", "btc_trend",
-    # Regime features (3)
+    "btc_returns", "btc_mom_5", "btc_vol_ratio", "btc_trend",
     "vol_regime", "trend_strength", "price_vs_sma200",
-    # Correlation + funding divergence (2)
     "btc_corr_20", "funding_divergence",
 ]
+
+# Multi-timeframe: 1h · 15m · 4h  (28 × 3 = 84 features)
+FEATURE_COLS = (
+    [f"h1_{c}"  for c in _BASE] +
+    [f"m15_{c}" for c in _BASE] +
+    [f"h4_{c}"  for c in _BASE]
+)
 
 
 class SequenceDataset(Dataset):
@@ -422,10 +411,10 @@ if __name__ == "__main__":
     parser.add_argument("--batch-size",   type=int,   default=256)
     parser.add_argument("--lr",           type=float, default=3e-4)
     parser.add_argument("--seq-len",      type=int,   default=48)
-    parser.add_argument("--d-model",      type=int,   default=64)
+    parser.add_argument("--d-model",      type=int,   default=90)   # 3 CNN paths × 30
     parser.add_argument("--n-heads",      type=int,   default=2)
-    parser.add_argument("--n-layers",     type=int,   default=2)
-    parser.add_argument("--d-ff",         type=int,   default=128)
+    parser.add_argument("--n-layers",     type=int,   default=3)
+    parser.add_argument("--d-ff",         type=int,   default=256)
     parser.add_argument("--dropout",      type=float, default=0.15)
     parser.add_argument("--patience",     type=int,   default=8)
     parser.add_argument("--n-folds",      type=int,   default=3)

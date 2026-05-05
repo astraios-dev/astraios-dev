@@ -19,6 +19,7 @@ router = APIRouter(prefix="/auto-trade", tags=["auto-trade"])
 class AutoTradeConfigRequest(BaseModel):
     enabled: bool
     demo: bool = True
+    execution_venue: str = "bybit_demo"   # "bybit_demo" | "bybit_live" | "drift"
     confidence_threshold: float = Field(default=0.65, ge=0.5, le=1.0)
     max_positions: int = Field(default=3, ge=1, le=10)
     position_size_pct: float = Field(default=5.0, ge=0.1, le=50.0)
@@ -42,6 +43,8 @@ async def get_config(
         return {
             "enabled": False,
             "demo": True,
+            "execution_venue": "bybit_demo",
+            "has_solana_keys": False,
             "confidence_threshold": 0.65,
             "max_positions": 3,
             "position_size_pct": 5.0,
@@ -54,6 +57,8 @@ async def get_config(
     return {
         "enabled": cfg.enabled,
         "demo": cfg.demo,
+        "execution_venue": cfg.execution_venue or "bybit_demo",
+        "has_solana_keys": bool(cfg.solana_private_key),
         "confidence_threshold": cfg.confidence_threshold,
         "max_positions": cfg.max_positions,
         "position_size_pct": cfg.position_size_pct,
@@ -81,6 +86,7 @@ async def save_config(
 
     cfg.enabled = body.enabled
     cfg.demo = body.demo
+    cfg.execution_venue = body.execution_venue
     cfg.confidence_threshold = body.confidence_threshold
     cfg.max_positions = body.max_positions
     cfg.position_size_pct = body.position_size_pct
@@ -182,22 +188,35 @@ async def trade_stats(
 async def closed_pnl(
     limit: int = 50,
     demo: bool = False,
+    venue: str = "bybit_demo",
     user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    if demo:
-        api_key = decrypt_key(user.bybit_testnet_key)
-        api_secret = decrypt_key(user.bybit_testnet_secret)
+    if venue == "drift":
+        from api.models.auto_trade import AutoTradeConfig as ATC
+        from api.services import solana_trader as st
+        result = await db.execute(select(ATC).where(ATC.user_id == user.id))
+        cfg = result.scalar_one_or_none()
+        if not cfg or not cfg.solana_private_key:
+            return {"trades": [], "summary": {"total_pnl": 0, "trade_count": 0, "win_count": 0,
+                    "loss_count": 0, "win_rate": 0, "avg_win": 0, "avg_loss": 0,
+                    "largest_win": 0, "largest_loss": 0}}
+        trades = await st.get_closed_pnl(limit, cfg.solana_private_key, cfg.solana_rpc_url or "")
     else:
-        api_key = decrypt_key(user.bybit_api_key)
-        api_secret = decrypt_key(user.bybit_api_secret)
+        if demo:
+            api_key = decrypt_key(user.bybit_testnet_key)
+            api_secret = decrypt_key(user.bybit_testnet_secret)
+        else:
+            api_key = decrypt_key(user.bybit_api_key)
+            api_secret = decrypt_key(user.bybit_api_secret)
 
-    if not api_key or not api_secret:
-        return []
+        if not api_key or not api_secret:
+            return []
 
-    try:
-        trades = await bybit.get_closed_pnl(limit=limit, api_key=api_key, api_secret=api_secret, demo=demo)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e))
+        try:
+            trades = await bybit.get_closed_pnl(limit=limit, api_key=api_key, api_secret=api_secret, demo=demo)
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=str(e))
 
     total_pnl = sum(t["pnl"] for t in trades)
     wins = [t for t in trades if t["pnl"] > 0]

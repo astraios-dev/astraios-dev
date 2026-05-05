@@ -56,6 +56,9 @@ export const api = {
   autoTradeConfig: () => apiFetch("/auto-trade/config"),
   saveAutoTradeConfig: (body) => apiFetch("/auto-trade/config", { method: "POST", body: JSON.stringify(body) }),
   autoTradeStats: () => apiFetch("/auto-trade/stats"),
-  autoTradePnl: (demo = false) => apiFetch(`/auto-trade/pnl?demo=${demo}&limit=100`),
+  autoTradePnl: (demo = false, venue = "bybit_demo") => apiFetch(`/auto-trade/pnl?demo=${demo}&venue=${venue}&limit=100`),
   autoTradeLog: (limit = 50) => apiFetch(`/auto-trade/log?limit=${limit}`),
+  verifySolanaKey: (key) => apiFetch("/account/solana-verify", { method: "POST", body: JSON.stringify({ solana_private_key: key }) }),
+  saveSolanaKeys: (body) => apiFetch("/account/solana-keys", { method: "POST", body: JSON.stringify(body) }),
+  removeSolanaKeys: () => apiFetch("/account/solana-keys", { method: "DELETE" }),
 };

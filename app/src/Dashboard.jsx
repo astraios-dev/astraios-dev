@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { createChart, ColorType } from "lightweight-charts";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { useAuth } from "./AuthContext.jsx";
 import { api } from "./api.js";
 
@@ -57,7 +59,13 @@ export default function Dashboard() {
   const [autoLog, setAutoLog] = useState([]);
   const [savingAuto, setSavingAuto] = useState(false);
   const [autoStatus, setAutoStatus] = useState(null);
-  const [showAutoLog, setShowAutoLog] = useState(false);
+  const [autoTab, setAutoTab] = useState("overview");
+
+  const [solanaForm, setSolanaForm] = useState({ privateKey: "", rpcUrl: "" });
+  const [showSolanaForm, setShowSolanaForm] = useState(false);
+  const [savingSolana, setSavingSolana] = useState(false);
+  const [solanaStatus, setSolanaStatus] = useState(null);
+  const solWallet = useWallet();
 
   // Sync auto-trade mode with global toggle: Demo mode → auto-trade demo on, Live → keep current
   useEffect(() => {
@@ -282,6 +290,32 @@ export default function Dashboard() {
     }
   };
 
+  const handleSaveSolanaKeys = async (e) => {
+    e.preventDefault();
+    if (!solanaForm.privateKey) return;
+    setSavingSolana(true); setSolanaStatus(null);
+    try {
+      const r = await api.saveSolanaKeys({ solana_private_key: solanaForm.privateKey, solana_rpc_url: solanaForm.rpcUrl || "" });
+      setSolanaStatus({ ok: true, msg: `Wallet connected (${r.pubkey_hint})` });
+      setSolanaForm({ privateKey: "", rpcUrl: "" });
+      setShowSolanaForm(false);
+      setSolanaWizardStep(0);
+      setSolanaPubkeyPreview(null);
+      const cfg = await api.autoTradeConfig();
+      setAutoConfig(cfg); setAutoConfigForm(cfg);
+    } catch (err) { setSolanaStatus({ ok: false, msg: err.message }); }
+    setSavingSolana(false);
+  };
+
+  const handleRemoveSolanaKeys = async () => {
+    try {
+      await api.removeSolanaKeys();
+      setSolanaStatus({ ok: true, msg: "Solana keys removed." });
+      const cfg = await api.autoTradeConfig();
+      setAutoConfig(cfg); setAutoConfigForm(cfg);
+    } catch (err) { setSolanaStatus({ ok: false, msg: err.message }); }
+  };
+
   const handleSaveAutoConfig = async (e) => {
     e.preventDefault();
     setSavingAuto(true);
@@ -293,7 +327,7 @@ export default function Dashboard() {
       const [logs, stats, pnl] = await Promise.all([
         api.autoTradeLog(),
         api.autoTradeStats(),
-        api.autoTradePnl(autoConfigForm.demo),
+        api.autoTradePnl(autoConfigForm.demo, autoConfigForm.execution_venue || "bybit_demo"),
       ]);
       setAutoLog(logs);
       setAutoStats(stats);
@@ -754,7 +788,7 @@ export default function Dashboard() {
                   <div className="signals-head-right">
                     {modelInfo?.model_loaded && (
                       <span className="model-badge" title={`${modelInfo.n_features} features · d_model=${modelInfo.d_model} · ${modelInfo.n_layers}L · seq=${modelInfo.seq_len}`}>
-                        Transformer · {modelInfo.val_acc}% val
+                        MTF Transformer · {modelInfo.val_acc}% acc
                       </span>
                     )}
                     {modelInfo && !modelInfo.model_loaded && (
@@ -768,59 +802,73 @@ export default function Dashboard() {
                   <p className="dash-empty">No signals yet. They will appear here as the engine generates them.</p>
                 ) : (
                   <>
-                    {/* Desktop table */}
-                    <div className="signals-table-wrap sig-desktop">
-                      <table className="signals-table">
-                        <thead>
-                          <tr>
-                            {signalPage === 0 && <th>#</th>}
-                            <th>Ticker</th>
-                            <th>Action</th>
-                            <th>Confidence</th>
-                            <th>Rationale</th>
-                            <th>Time</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {pagedSignals.map((s, i) => (
-                            <tr key={s.id}>
-                              {signalPage === 0 && <td className="signal-rank">{i + 1}</td>}
-                              <td className="signal-ticker">{s.ticker}</td>
-                              <td>
-                                <span className={`signal-action signal-action--${s.action.toLowerCase()}`}>
-                                  {s.action}
-                                </span>
-                              </td>
-                              <td>
-                                <span className="signal-confidence">
-                                  <span className="signal-confidence__bar" style={{ width: `${s.confidence * 100}%` }} />
-                                  <span className="signal-confidence__label">{(s.confidence * 100).toFixed(0)}%</span>
-                                </span>
-                              </td>
-                              <td className="signal-rationale">{s.rationale}</td>
-                              <td className="signal-time">{formatTime(s.created_at)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                    {/* Signal cards — unified layout for desktop + mobile */}
+                    <div className="sig-list">
+                      {pagedSignals.map((s, i) => {
+                        // Parse rich rationale: parts separated by " · "
+                        const parts = s.rationale ? s.rationale.split(" · ") : [];
+                        const headline = parts[0] || "";
+                        const details  = parts.slice(1);
+                        const isBuy    = s.action === "BUY";
+                        const isSell   = s.action === "SELL";
+                        const confPct  = Math.round(s.confidence * 100);
 
-                    {/* Mobile cards */}
-                    <div className="sig-cards sig-mobile">
-                      {pagedSignals.map((s, i) => (
-                        <div className="sig-card" key={s.id}>
-                          <div className="sig-card__head">
-                            {signalPage === 0 && <span className="sig-card__rank">{i + 1}</span>}
-                            <span className="sig-card__ticker">{s.ticker}</span>
-                            <span className={`signal-action signal-action--${s.action.toLowerCase()}`}>{s.action}</span>
-                            <span className="sig-card__conf">{(s.confidence * 100).toFixed(0)}%</span>
+                        return (
+                          <div className={`sig-entry sig-entry--${s.action.toLowerCase()}`} key={s.id}>
+                            {/* Left: rank + action */}
+                            <div className="sig-entry__left">
+                              {signalPage === 0 && <span className="sig-entry__rank">{i + 1}</span>}
+                              <span className={`sig-entry__badge sig-entry__badge--${s.action.toLowerCase()}`}>
+                                {s.action}
+                              </span>
+                            </div>
+
+                            {/* Center: ticker + headline + detail pills */}
+                            <div className="sig-entry__body">
+                              <div className="sig-entry__top">
+                                <span className="sig-entry__ticker">{s.ticker.replace("USDT", "")}</span>
+                                <span className="sig-entry__symbol-full">{s.ticker}</span>
+                                <span className="sig-entry__headline">{headline}</span>
+                              </div>
+                              {details.length > 0 && (
+                                <div className="sig-entry__pills">
+                                  {details.map((d, j) => {
+                                    const isPos = d.includes("confirms") || d.includes("aligned") || d.includes("supports") || d.includes("oversold");
+                                    const isNeg = d.includes("diverges") || d.includes("counter") || d.includes("overbought") || d.includes("extended");
+                                    return (
+                                      <span
+                                        key={j}
+                                        className={`sig-pill${isPos ? " sig-pill--pos" : isNeg ? " sig-pill--neg" : ""}`}
+                                      >
+                                        {d}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Right: confidence gauge + time */}
+                            <div className="sig-entry__right">
+                              <div className="sig-entry__conf">
+                                <svg className="sig-entry__arc" viewBox="0 0 36 36" aria-hidden="true">
+                                  <circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--line)" strokeWidth="2.5" />
+                                  <circle
+                                    cx="18" cy="18" r="15.9" fill="none"
+                                    stroke={isBuy ? "#2ecb71" : isSell ? "#e04040" : "#9a9a97"}
+                                    strokeWidth="2.5"
+                                    strokeDasharray={`${confPct} 100`}
+                                    strokeLinecap="round"
+                                    transform="rotate(-90 18 18)"
+                                  />
+                                </svg>
+                                <span className="sig-entry__conf-val">{confPct}%</span>
+                              </div>
+                              <span className="sig-entry__time">{formatTime(s.created_at)}</span>
+                            </div>
                           </div>
-                          <div className="sig-card__bar">
-                            <span className="sig-card__bar-fill" style={{ width: `${s.confidence * 100}%` }} />
-                          </div>
-                          {s.rationale && <p className="sig-card__rationale">{s.rationale}</p>}
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
 
                     {signalPageCount > 1 && (
@@ -958,189 +1006,279 @@ export default function Dashboard() {
                   <p className={`trade-status ${testnetKeysStatus.ok ? "trade-status--ok" : "trade-status--err"}`}>{testnetKeysStatus.msg}</p>
                 )}
               </div>
+
+              {/* Solana (Drift) wallet connection */}
+              <div className="sol-connect">
+                <div className="sol-connect__header">
+                  <div className="sol-connect__title-row">
+                    <svg className="sol-connect__logo" viewBox="0 0 24 24" width="18" height="18"><path fill="#9945ff" d="M20.5 16.2l-2.8 2.9c-.1.1-.3.2-.5.2H3.7c-.4 0-.6-.5-.3-.8l2.8-2.9c.1-.1.3-.2.5-.2H20.2c.4 0 .6.5.3.8zm-2.8-5.1c-.1-.1-.3-.2-.5-.2H3.7c-.4 0-.6.5-.3.8l2.8 2.9c.1.1.3.2.5.2H20.2c.4 0 .6-.5.3-.8l-2.8-2.9zM3.7 7.8h13.5c.2 0 .4.1.5.2l2.8 2.9c.3.3.1.8-.3.8H6.7c-.2 0-.4-.1-.5-.2L3.4 8.6c-.3-.3-.1-.8.3-.8z"/></svg>
+                    <span className="sol-connect__title">Drift Protocol</span>
+                    <span className="sol-connect__badge">On-chain</span>
+                  </div>
+                  {autoConfig?.has_solana_keys && (
+                    <span className="sol-connect__connected">Trading wallet active</span>
+                  )}
+                </div>
+
+                {/* Phantom/Solflare wallet connect button */}
+                <div className="sol-connect__wallet-row">
+                  <WalletMultiButton className="sol-connect__wallet-btn" />
+                  {solWallet.publicKey && (
+                    <span className="sol-connect__wallet-addr">
+                      {solWallet.publicKey.toBase58().slice(0, 4)}...{solWallet.publicKey.toBase58().slice(-4)}
+                    </span>
+                  )}
+                </div>
+
+                {/* Trading key setup */}
+                {autoConfig?.has_solana_keys && !showSolanaForm ? (
+                  <div className="sol-connect__active">
+                    <p className="sol-connect__active-msg">Trading wallet connected. Auto-trader executes on Drift Protocol every 15 minutes.</p>
+                    <div className="sol-connect__active-actions">
+                      <button type="button" className="api-keys-btn" onClick={() => setShowSolanaForm(true)}>Change trading key</button>
+                      <button type="button" className="api-keys-btn api-keys-btn--danger" onClick={handleRemoveSolanaKeys}>Remove</button>
+                    </div>
+                  </div>
+                ) : !showSolanaForm ? (
+                  <div className="sol-connect__cta">
+                    <p className="sol-connect__desc">
+                      {solWallet.publicKey
+                        ? "Your browser wallet is connected for identity. To enable autonomous trading on Drift, add a dedicated trading keypair below."
+                        : "Connect a Solana wallet above, then set up a trading keypair for Drift auto-trading."}
+                    </p>
+                    <button type="button" className="sol-connect__btn" onClick={() => setShowSolanaForm(true)}>
+                      Set up trading key
+                    </button>
+                  </div>
+                ) : null}
+
+                {showSolanaForm && (
+                  <form className="sol-wizard" onSubmit={handleSaveSolanaKeys}>
+                    <h4 className="sol-wizard__heading">Trading wallet keypair</h4>
+                    <p className="sol-wizard__text">
+                      This is a <strong>dedicated trading wallet</strong> — keep minimal funds here. The auto-trader uses this key server-side to execute on Drift every 15 min without your browser open.
+                    </p>
+
+                    <div className="sol-wizard__input-wrap">
+                      <textarea
+                        className="sol-wizard__textarea"
+                        rows={2}
+                        value={solanaForm.privateKey}
+                        onChange={(e) => setSolanaForm((f) => ({ ...f, privateKey: e.target.value.trim() }))}
+                        placeholder="Paste base58 private key or [id.json byte array]"
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                    </div>
+
+                    <div className="sol-wizard__rpc-row">
+                      <label className="sol-wizard__rpc-label-inline">RPC</label>
+                      <select
+                        className="sol-wizard__rpc-select"
+                        value={solanaForm.rpcUrl}
+                        onChange={(e) => setSolanaForm((f) => ({ ...f, rpcUrl: e.target.value }))}
+                      >
+                        <option value="">Public (free, rate-limited)</option>
+                        <option value="https://mainnet.helius-rpc.com/?api-key=YOUR_KEY">Helius (paste key in URL)</option>
+                        <option value="custom">Custom URL</option>
+                      </select>
+                      {solanaForm.rpcUrl === "custom" && (
+                        <input
+                          className="sol-wizard__rpc-input"
+                          type="text"
+                          value=""
+                          onChange={(e) => setSolanaForm((f) => ({ ...f, rpcUrl: e.target.value }))}
+                          placeholder="https://your-rpc.com"
+                        />
+                      )}
+                    </div>
+
+                    <div className="sol-wizard__security">
+                      <span className="sol-wizard__lock-icon">🔒</span>
+                      <span>Encrypted at rest (Fernet/AES). Decrypted only in memory during trade execution. Never exposed via API.</span>
+                    </div>
+
+                    <div className="sol-wizard__nav">
+                      <button type="button" className="sol-wizard__btn sol-wizard__btn--secondary" onClick={() => { setShowSolanaForm(false); setSolanaForm({ privateKey: "", rpcUrl: "" }); }}>Cancel</button>
+                      <button type="submit" className="sol-wizard__btn sol-wizard__btn--primary" disabled={savingSolana || !solanaForm.privateKey}>
+                        {savingSolana ? "Saving…" : "Save trading key"}
+                      </button>
+                    </div>
+
+                    {solanaStatus && (
+                      <p className={`trade-status ${solanaStatus.ok ? "trade-status--ok" : "trade-status--err"}`}>{solanaStatus.msg}</p>
+                    )}
+                  </form>
+                )}
+              </div>
             </section>
 
             <section className="dash-auto-trade" aria-labelledby="auto-trade-title">
-              <div className="dash-section-head">
-                <h2 id="auto-trade-title">Auto-Trading</h2>
-                <div className="auto-trade-head-right">
-                  {autoConfig?.enabled
-                    ? <span className="auto-trade-badge auto-trade-badge--on">ACTIVE — {autoConfig.demo ? "DEMO" : "LIVE"}</span>
-                    : <span className="auto-trade-badge auto-trade-badge--off">OFF</span>
-                  }
-                  <span className="auto-trade-global-mode">{isLive ? "Global: Live" : "Global: Demo"}</span>
+              {/* Header */}
+              <div className="at-header">
+                <div className="at-header__left">
+                  <h2 id="auto-trade-title">Auto-Trading</h2>
+                  <div className={`at-status-pill ${autoConfig?.enabled
+                    ? autoConfig.execution_venue === "drift" ? "at-status-pill--drift"
+                      : autoConfig.demo ? "at-status-pill--demo" : "at-status-pill--live"
+                    : "at-status-pill--off"}`}>
+                    <span className="at-status-pill__dot" />
+                    {autoConfig?.enabled
+                      ? autoConfig.execution_venue === "drift" ? "Drift active"
+                        : autoConfig.demo ? "Demo active" : "Live active"
+                      : "Off"}
+                  </div>
                 </div>
+                {autoConfigForm && (
+                  <label className="at-master-toggle" title={autoConfigForm.enabled ? "Disable auto-trading" : "Enable auto-trading"}>
+                    <input
+                      type="checkbox"
+                      checked={autoConfigForm.enabled}
+                      onChange={(e) => {
+                        const next = { ...autoConfigForm, enabled: e.target.checked };
+                        setAutoConfigForm(next);
+                        api.saveAutoTradeConfig(next)
+                          .then((r) => { setAutoConfig(next); setAutoStatus({ ok: true, msg: r.enabled ? "Enabled." : "Disabled." }); })
+                          .catch((err) => setAutoStatus({ ok: false, msg: err.message }));
+                      }}
+                    />
+                    <span className="at-master-toggle__track" />
+                  </label>
+                )}
               </div>
 
-              {autoConfigForm && (
-                <form className="auto-trade-form" onSubmit={handleSaveAutoConfig}>
-                  <div className="auto-trade-toggle-row">
-                    <label className="auto-trade-toggle">
-                      <input
-                        type="checkbox"
-                        checked={autoConfigForm.enabled}
-                        onChange={(e) => setAutoConfigForm((f) => ({ ...f, enabled: e.target.checked }))}
-                      />
-                      <span className="auto-trade-toggle__track" />
-                      <span className="auto-trade-toggle__label">
-                        {autoConfigForm.enabled ? "Enabled" : "Disabled"}
-                      </span>
-                    </label>
-
-                    <div className="auto-trade-mode-select">
-                      <span className="trade-field__label">Execution mode</span>
-                      <div className="auto-trade-mode-btns">
-                        <button
-                          type="button"
-                          className={`auto-trade-mode-btn${autoConfigForm.demo ? " active" : ""}`}
-                          onClick={() => setAutoConfigForm((f) => ({ ...f, demo: true }))}
-                        >Demo</button>
-                        <button
-                          type="button"
-                          className={`auto-trade-mode-btn danger${!autoConfigForm.demo ? " active" : ""}`}
-                          onClick={() => setAutoConfigForm((f) => ({ ...f, demo: false }))}
-                        >Live</button>
-                      </div>
-                      {!autoConfigForm.demo && (
-                        <p className="auto-trade-mode-warn">⚠ Live mode places real orders with real funds.</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="auto-trade-grid">
-                    <label className="trade-field">
-                      <span className="trade-field__label">Min Confidence</span>
-                      <input
-                        type="number" step="0.01" min="0.5" max="1"
-                        value={autoConfigForm.confidence_threshold}
-                        onChange={(e) => setAutoConfigForm((f) => ({ ...f, confidence_threshold: parseFloat(e.target.value) }))}
-                      />
-                    </label>
-                    <label className="trade-field">
-                      <span className="trade-field__label">Max Positions</span>
-                      <input
-                        type="number" min="1" max="10"
-                        value={autoConfigForm.max_positions}
-                        onChange={(e) => setAutoConfigForm((f) => ({ ...f, max_positions: parseInt(e.target.value) }))}
-                      />
-                    </label>
-                    <label className="trade-field">
-                      <span className="trade-field__label">Size % of Equity</span>
-                      <input
-                        type="number" step="0.1" min="0.1" max="50"
-                        value={autoConfigForm.position_size_pct}
-                        onChange={(e) => setAutoConfigForm((f) => ({ ...f, position_size_pct: parseFloat(e.target.value) }))}
-                      />
-                    </label>
-                    <label className="trade-field">
-                      <span className="trade-field__label">Leverage</span>
-                      <input
-                        type="number" min="1" max="20"
-                        value={autoConfigForm.leverage}
-                        onChange={(e) => setAutoConfigForm((f) => ({ ...f, leverage: parseInt(e.target.value) }))}
-                      />
-                    </label>
-                    <label className="trade-field">
-                      <span className="trade-field__label">Take Profit %</span>
-                      <input
-                        type="number" step="0.1" min="0.1"
-                        value={autoConfigForm.tp_pct}
-                        onChange={(e) => setAutoConfigForm((f) => ({ ...f, tp_pct: parseFloat(e.target.value) }))}
-                      />
-                    </label>
-                    <label className="trade-field">
-                      <span className="trade-field__label">Stop Loss %</span>
-                      <input
-                        type="number" step="0.1" min="0.1"
-                        value={autoConfigForm.sl_pct}
-                        onChange={(e) => setAutoConfigForm((f) => ({ ...f, sl_pct: parseFloat(e.target.value) }))}
-                      />
-                    </label>
-                    <label className="trade-field auto-trade-symbols">
-                      <span className="trade-field__label">Symbols (comma-separated)</span>
-                      <input
-                        type="text"
-                        value={autoConfigForm.symbols}
-                        onChange={(e) => setAutoConfigForm((f) => ({ ...f, symbols: e.target.value }))}
-                        placeholder="BTCUSDT,ETHUSDT,SOLUSDT"
-                      />
-                    </label>
-                  </div>
-
-                  <button type="submit" className="trade-submit trade-submit--buy" disabled={savingAuto}>
-                    {savingAuto ? "Saving…" : "Save configuration"}
+              {/* Tabs */}
+              <div className="at-tabs">
+                {["overview", "settings", "log"].map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    className={`at-tab${autoTab === tab ? " active" : ""}`}
+                    onClick={() => {
+                      setAutoTab(tab);
+                      if (tab === "log") api.autoTradeLog().then(setAutoLog).catch(() => {});
+                      if (tab === "overview") {
+                        api.autoTradeStats().then(setAutoStats).catch(() => {});
+                        if (autoConfig) api.autoTradePnl(autoConfig.demo).then(setAutoPnl).catch(() => {});
+                      }
+                    }}
+                  >
+                    {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                    {tab === "log" && autoLog.length > 0 && <span className="at-tab__count">{autoLog.length}</span>}
                   </button>
-                  {autoStatus && (
-                    <p className={`trade-status ${autoStatus.ok ? "trade-status--ok" : "trade-status--err"}`}>
-                      {autoStatus.msg}
-                    </p>
-                  )}
-                </form>
-              )}
+                ))}
+              </div>
 
-              {autoStats && (
-                <div className="auto-trade-stats">
-                  <div className="dash-section-label" style={{marginBottom:"0.75rem"}}>Performance</div>
-                  <div className="auto-stats-grid">
-                    <div className="auto-stat">
-                      <span className="auto-stat__label">Total orders</span>
-                      <span className="auto-stat__value">{autoStats.total_orders}</span>
+              {/* ── Overview tab ── */}
+              {autoTab === "overview" && (
+                <div className="at-overview">
+                  {/* Net P&L hero */}
+                  {autoPnl ? (
+                    <div className="at-pnl-hero">
+                      <div className="at-pnl-hero__main">
+                        <span className="at-pnl-hero__label">Net Realized P&amp;L</span>
+                        <span className={`at-pnl-hero__value ${autoPnl.summary.total_pnl >= 0 ? "val-up" : "val-down"}`}>
+                          {autoPnl.summary.total_pnl >= 0 ? "+" : ""}{autoPnl.summary.total_pnl.toFixed(2)} USDT
+                        </span>
+                      </div>
+                      <div className="at-pnl-hero__meta">
+                        <div className="at-pnl-hero__pill val-up">{autoPnl.summary.win_count}W</div>
+                        <div className="at-pnl-hero__pill val-down">{autoPnl.summary.loss_count}L</div>
+                        <div className="at-pnl-hero__pill">{autoPnl.summary.win_rate}% win</div>
+                      </div>
                     </div>
-                    <div className="auto-stat">
-                      <span className="auto-stat__label">Filled</span>
-                      <span className="auto-stat__value val-up">{autoStats.filled}</span>
+                  ) : (
+                    <div className="at-pnl-hero at-pnl-hero--empty">
+                      <span className="at-pnl-hero__label">Net Realized P&amp;L</span>
+                      <span className="at-pnl-hero__value">—</span>
                     </div>
-                    <div className="auto-stat">
-                      <span className="auto-stat__label">Errors</span>
-                      <span className={`auto-stat__value${autoStats.errors > 0 ? " val-down" : ""}`}>{autoStats.errors}</span>
+                  )}
+
+                  {/* Stats row */}
+                  {autoStats && (
+                    <div className="at-stats-row">
+                      <div className="at-stat">
+                        <span className="at-stat__val">{autoStats.filled}</span>
+                        <span className="at-stat__lbl">Filled</span>
+                      </div>
+                      <div className="at-stat-divider" />
+                      <div className="at-stat">
+                        <span className={`at-stat__val ${autoStats.errors > 0 ? "val-down" : ""}`}>{autoStats.errors}</span>
+                        <span className="at-stat__lbl">Errors</span>
+                      </div>
+                      <div className="at-stat-divider" />
+                      <div className="at-stat">
+                        <span className={`at-stat__val ${autoStats.active_positions > 0 ? "val-up" : ""}`}>{autoStats.active_positions}</span>
+                        <span className="at-stat__lbl">Active</span>
+                      </div>
+                      <div className="at-stat-divider" />
+                      <div className="at-stat">
+                        <span className="at-stat__val">{autoStats.avg_confidence}%</span>
+                        <span className="at-stat__lbl">Avg conf</span>
+                      </div>
+                      <div className="at-stat-divider" />
+                      <div className="at-stat">
+                        <span className="at-stat__val">
+                          {autoStats.avg_hold_minutes >= 60
+                            ? `${(autoStats.avg_hold_minutes / 60).toFixed(1)}h`
+                            : `${autoStats.avg_hold_minutes}m`}
+                        </span>
+                        <span className="at-stat__lbl">Avg hold</span>
+                      </div>
+                      <div className="at-stat-divider" />
+                      <div className="at-stat">
+                        <span className="at-stat__val">
+                          <span className="val-up">{autoStats.by_side?.Buy ?? 0}</span>
+                          <span style={{color:"var(--muted)"}}>/</span>
+                          <span className="val-down">{autoStats.by_side?.Sell ?? 0}</span>
+                        </span>
+                        <span className="at-stat__lbl">B / S</span>
+                      </div>
                     </div>
-                    <div className="auto-stat">
-                      <span className="auto-stat__label">Fill rate</span>
-                      <span className="auto-stat__value">{autoStats.success_rate}%</span>
+                  )}
+
+                  {/* PnL trade breakdown */}
+                  {autoPnl && autoPnl.trades.length > 0 && (
+                    <div className="at-trades-section">
+                      <div className="at-trades-header">
+                        <span className="at-section-label">Closed trades</span>
+                        <div className="at-trades-summary">
+                          <span className="val-up">Avg win +{autoPnl.summary.avg_win.toFixed(2)}</span>
+                          <span className="at-trades-summary__sep">·</span>
+                          <span className="val-down">Avg loss {autoPnl.summary.avg_loss.toFixed(2)}</span>
+                        </div>
+                      </div>
+                      <div className="at-trades-list">
+                        {autoPnl.trades.slice(0, 10).map((t, i) => (
+                          <div key={i} className={`at-trade-row ${t.pnl >= 0 ? "at-trade-row--win" : "at-trade-row--loss"}`}>
+                            <span className="at-trade-row__symbol">{t.symbol.replace("USDT","")}</span>
+                            <span className={`at-trade-row__side ${t.side === "Buy" ? "val-up" : "val-down"}`}>{t.side}</span>
+                            <span className="at-trade-row__prices">{t.entry_price.toFixed(2)} → {t.exit_price.toFixed(2)}</span>
+                            <span className={`at-trade-row__pnl ${t.pnl >= 0 ? "val-up" : "val-down"}`}>
+                              {t.pnl >= 0 ? "+" : ""}{t.pnl.toFixed(4)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                    <div className="auto-stat">
-                      <span className="auto-stat__label">Today</span>
-                      <span className="auto-stat__value">{autoStats.today_orders} orders</span>
-                    </div>
-                    <div className="auto-stat">
-                      <span className="auto-stat__label">Active</span>
-                      <span className={`auto-stat__value${autoStats.active_positions > 0 ? " val-up" : ""}`}>{autoStats.active_positions} positions</span>
-                    </div>
-                    <div className="auto-stat">
-                      <span className="auto-stat__label">Avg confidence</span>
-                      <span className="auto-stat__value">{autoStats.avg_confidence}%</span>
-                    </div>
-                    <div className="auto-stat">
-                      <span className="auto-stat__label">Avg hold time</span>
-                      <span className="auto-stat__value">
-                        {autoStats.avg_hold_minutes >= 60
-                          ? `${(autoStats.avg_hold_minutes / 60).toFixed(1)}h`
-                          : `${autoStats.avg_hold_minutes}m`}
-                      </span>
-                    </div>
-                    <div className="auto-stat">
-                      <span className="auto-stat__label">Buy / Sell</span>
-                      <span className="auto-stat__value">
-                        <span className="val-up">{autoStats.by_side?.Buy ?? 0}</span>
-                        {" / "}
-                        <span className="val-down">{autoStats.by_side?.Sell ?? 0}</span>
-                      </span>
-                    </div>
-                  </div>
-                  {autoStats.top_symbols?.length > 0 && (
-                    <div className="auto-stats-symbols">
-                      <span className="dash-section-label" style={{marginBottom:"0.5rem",display:"block"}}>Top symbols</span>
+                  )}
+
+                  {autoPnl && autoPnl.trades.length === 0 && !autoStats?.filled && (
+                    <p className="dash-empty" style={{marginTop:"1.5rem"}}>No trades executed yet. Enable auto-trading and wait for the next signal cycle.</p>
+                  )}
+
+                  {/* Top symbols */}
+                  {autoStats?.top_symbols?.length > 0 && (
+                    <div className="at-symbols-section">
+                      <span className="at-section-label">By symbol</span>
                       {autoStats.top_symbols.map((s) => (
-                        <div className="auto-stats-symbol-row" key={s.symbol}>
-                          <span className="auto-stats-symbol-name">{s.symbol}</span>
-                          <span className="auto-stats-symbol-bar-wrap">
-                            <span
-                              className="auto-stats-symbol-bar"
-                              style={{width: `${Math.min(100, (s.filled / (autoStats.filled || 1)) * 100)}%`}}
-                            />
+                        <div className="at-symbol-row" key={s.symbol}>
+                          <span className="at-symbol-row__name">{s.symbol.replace("USDT","")}</span>
+                          <span className="at-symbol-row__bar-wrap">
+                            <span className="at-symbol-row__bar" style={{width:`${Math.min(100,(s.filled/(autoStats.filled||1))*100)}%`}} />
                           </span>
-                          <span className="auto-stats-symbol-count val-up">{s.filled} filled</span>
-                          {s.errors > 0 && <span className="auto-stats-symbol-count val-down">{s.errors} err</span>}
+                          <span className="at-symbol-row__count val-up">{s.filled}</span>
+                          {s.errors > 0 && <span className="at-symbol-row__count val-down">+{s.errors}err</span>}
                         </div>
                       ))}
                     </div>
@@ -1148,128 +1286,178 @@ export default function Dashboard() {
                 </div>
               )}
 
-              {autoPnl && (
-                <div className="auto-pnl-section">
-                  <div className="dash-section-label" style={{marginBottom:"0.75rem"}}>Realized P&amp;L</div>
+              {/* ── Settings tab ── */}
+              {autoTab === "settings" && autoConfigForm && (
+                <form className="at-settings-form" onSubmit={handleSaveAutoConfig}>
 
-                  <div className="auto-pnl-summary">
-                    <div className="auto-pnl-total">
-                      <span className="auto-stat__label">Net P&amp;L</span>
-                      <span className={`auto-pnl-total__value ${autoPnl.summary.total_pnl >= 0 ? "val-up" : "val-down"}`}>
-                        {autoPnl.summary.total_pnl >= 0 ? "+" : ""}{autoPnl.summary.total_pnl.toFixed(4)} USDT
-                      </span>
+                  {/* Execution mode */}
+                  <div className="at-settings-group">
+                    <span className="at-settings-group__label">Execution mode</span>
+                    <div className="at-mode-btns">
+                      <button type="button"
+                        className={`at-mode-btn${(autoConfigForm.execution_venue || "bybit_demo") === "bybit_demo" ? " active" : ""}`}
+                        onClick={() => setAutoConfigForm((f) => ({ ...f, execution_venue: "bybit_demo", demo: true }))}>
+                        <span className="at-mode-btn__dot at-mode-btn__dot--demo" />Bybit Demo
+                      </button>
+                      <button type="button"
+                        className={`at-mode-btn at-mode-btn--danger${autoConfigForm.execution_venue === "bybit_live" ? " active" : ""}`}
+                        onClick={() => setAutoConfigForm((f) => ({ ...f, execution_venue: "bybit_live", demo: false }))}>
+                        <span className="at-mode-btn__dot at-mode-btn__dot--live" />Bybit Live
+                      </button>
+                      <button type="button"
+                        className={`at-mode-btn at-mode-btn--drift${autoConfigForm.execution_venue === "drift" ? " active" : ""}`}
+                        onClick={() => setAutoConfigForm((f) => ({ ...f, execution_venue: "drift", demo: false }))}>
+                        <span className="at-mode-btn__dot at-mode-btn__dot--drift" />Drift (Solana)
+                      </button>
                     </div>
-                    <div className="auto-pnl-meta">
-                      <div className="auto-stat">
-                        <span className="auto-stat__label">Win rate</span>
-                        <span className="auto-stat__value">{autoPnl.summary.win_rate}%</span>
-                      </div>
-                      <div className="auto-stat">
-                        <span className="auto-stat__label">Trades</span>
-                        <span className="auto-stat__value">
-                          <span className="val-up">{autoPnl.summary.win_count}W</span>
-                          {" / "}
-                          <span className="val-down">{autoPnl.summary.loss_count}L</span>
-                        </span>
-                      </div>
-                      <div className="auto-stat">
-                        <span className="auto-stat__label">Avg win</span>
-                        <span className="auto-stat__value val-up">+{autoPnl.summary.avg_win.toFixed(4)}</span>
-                      </div>
-                      <div className="auto-stat">
-                        <span className="auto-stat__label">Avg loss</span>
-                        <span className="auto-stat__value val-down">{autoPnl.summary.avg_loss.toFixed(4)}</span>
-                      </div>
-                      <div className="auto-stat">
-                        <span className="auto-stat__label">Best trade</span>
-                        <span className="auto-stat__value val-up">+{autoPnl.summary.largest_win.toFixed(4)}</span>
-                      </div>
-                      <div className="auto-stat">
-                        <span className="auto-stat__label">Worst trade</span>
-                        <span className="auto-stat__value val-down">{autoPnl.summary.largest_loss.toFixed(4)}</span>
-                      </div>
-                    </div>
+                    {autoConfigForm.execution_venue === "bybit_live" && (
+                      <p className="at-warn">Live mode places real orders with real funds.</p>
+                    )}
+                    {autoConfigForm.execution_venue === "drift" && !autoConfig?.has_solana_keys && (
+                      <p className="at-warn">⚠ Add your Solana wallet key in Account → Solana (Drift) to enable on-chain trading.</p>
+                    )}
+                    {autoConfigForm.execution_venue === "drift" && autoConfig?.has_solana_keys && (
+                      <p className="at-drift-ready">✓ Solana wallet connected — trades execute on Drift Protocol (on-chain, non-custodial)</p>
+                    )}
                   </div>
 
-                  {autoPnl.trades.length > 0 && (
-                    <div className="auto-pnl-trades">
-                      <table className="auto-trade-table">
-                        <thead>
-                          <tr>
-                            <th>Time</th>
-                            <th>Symbol</th>
-                            <th>Side</th>
-                            <th>Qty</th>
-                            <th>Entry</th>
-                            <th>Exit</th>
-                            <th>P&amp;L</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {autoPnl.trades.map((t, i) => (
-                            <tr key={i} className={t.pnl >= 0 ? "auto-trade-row--win" : "auto-trade-row--loss"}>
-                              <td>{t.updated_time ? new Date(parseInt(t.updated_time)).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}) : "—"}</td>
-                              <td>{t.symbol}</td>
-                              <td className={t.side === "Buy" ? "val-up" : "val-down"}>{t.side}</td>
-                              <td>{t.qty}</td>
-                              <td>{t.entry_price.toFixed(4)}</td>
-                              <td>{t.exit_price.toFixed(4)}</td>
-                              <td className={t.pnl >= 0 ? "val-up" : "val-down"}>
-                                {t.pnl >= 0 ? "+" : ""}{t.pnl.toFixed(4)}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                  {/* Risk parameters */}
+                  <div className="at-settings-group">
+                    <span className="at-settings-group__label">Risk parameters</span>
+                    <div className="at-params-grid">
+                      <label className="at-param">
+                        <span className="at-param__label">Min confidence</span>
+                        <div className="at-param__input-wrap">
+                          <input type="number" step="0.01" min="0.5" max="1"
+                            value={autoConfigForm.confidence_threshold}
+                            onChange={(e) => setAutoConfigForm((f) => ({ ...f, confidence_threshold: parseFloat(e.target.value) }))} />
+                          <span className="at-param__unit">prob</span>
+                        </div>
+                      </label>
+                      <label className="at-param">
+                        <span className="at-param__label">Max positions</span>
+                        <div className="at-param__input-wrap">
+                          <input type="number" min="1" max="10"
+                            value={autoConfigForm.max_positions}
+                            onChange={(e) => setAutoConfigForm((f) => ({ ...f, max_positions: parseInt(e.target.value) }))} />
+                          <span className="at-param__unit">pos</span>
+                        </div>
+                      </label>
+                      <label className="at-param">
+                        <span className="at-param__label">Position size</span>
+                        <div className="at-param__input-wrap">
+                          <input type="number" step="0.1" min="0.1" max="50"
+                            value={autoConfigForm.position_size_pct}
+                            onChange={(e) => setAutoConfigForm((f) => ({ ...f, position_size_pct: parseFloat(e.target.value) }))} />
+                          <span className="at-param__unit">% eq</span>
+                        </div>
+                      </label>
+                      <label className="at-param">
+                        <span className="at-param__label">Leverage</span>
+                        <div className="at-param__input-wrap">
+                          <input type="number" min="1" max="20"
+                            value={autoConfigForm.leverage}
+                            onChange={(e) => setAutoConfigForm((f) => ({ ...f, leverage: parseInt(e.target.value) }))} />
+                          <span className="at-param__unit">×</span>
+                        </div>
+                      </label>
+                      <label className="at-param">
+                        <span className="at-param__label">Take profit</span>
+                        <div className="at-param__input-wrap">
+                          <input type="number" step="0.1" min="0.1"
+                            value={autoConfigForm.tp_pct}
+                            onChange={(e) => setAutoConfigForm((f) => ({ ...f, tp_pct: parseFloat(e.target.value) }))} />
+                          <span className="at-param__unit val-up">%</span>
+                        </div>
+                      </label>
+                      <label className="at-param">
+                        <span className="at-param__label">Stop loss</span>
+                        <div className="at-param__input-wrap">
+                          <input type="number" step="0.1" min="0.1"
+                            value={autoConfigForm.sl_pct}
+                            onChange={(e) => setAutoConfigForm((f) => ({ ...f, sl_pct: parseFloat(e.target.value) }))} />
+                          <span className="at-param__unit val-down">%</span>
+                        </div>
+                      </label>
                     </div>
-                  )}
+                    {autoConfigForm.tp_pct > 0 && autoConfigForm.sl_pct > 0 && (
+                      <div className="at-rr-pill">
+                        R:R {(autoConfigForm.tp_pct / autoConfigForm.sl_pct).toFixed(1)}×
+                        · break-even {(autoConfigForm.sl_pct / (autoConfigForm.tp_pct + autoConfigForm.sl_pct) * 100).toFixed(0)}% win rate
+                      </div>
+                    )}
+                  </div>
 
-                  {autoPnl.trades.length === 0 && (
-                    <p className="dash-empty">No closed trades yet.</p>
-                  )}
-                </div>
+                  {/* Symbols */}
+                  <div className="at-settings-group">
+                    <span className="at-settings-group__label">Symbols</span>
+                    <div className="at-symbols-chips">
+                      {autoConfigForm.symbols.split(",").map((s) => s.trim()).filter(Boolean).map((sym) => (
+                        <span key={sym} className="at-chip">
+                          {sym.replace("USDT","")}
+                          <button type="button" className="at-chip__remove"
+                            onClick={() => setAutoConfigForm((f) => ({
+                              ...f,
+                              symbols: f.symbols.split(",").map(s=>s.trim()).filter(s=>s && s!==sym).join(",")
+                            }))}>×</button>
+                        </span>
+                      ))}
+                    </div>
+                    <input
+                      className="at-symbols-input"
+                      type="text"
+                      placeholder="Add symbol e.g. BTCUSDT"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === ",") {
+                          e.preventDefault();
+                          const val = e.target.value.trim().toUpperCase().replace(/,/g,"");
+                          if (val && !autoConfigForm.symbols.split(",").includes(val)) {
+                            setAutoConfigForm((f) => ({ ...f, symbols: f.symbols ? `${f.symbols},${val}` : val }));
+                          }
+                          e.target.value = "";
+                        }
+                      }}
+                    />
+                  </div>
+
+                  <div className="at-settings-footer">
+                    <button type="submit" className="at-save-btn" disabled={savingAuto}>
+                      {savingAuto ? "Saving…" : "Save changes"}
+                    </button>
+                    {autoStatus && (
+                      <span className={`at-status-msg ${autoStatus.ok ? "val-up" : "val-down"}`}>{autoStatus.msg}</span>
+                    )}
+                  </div>
+                </form>
               )}
 
-              <div className="auto-trade-log-header">
-                <span className="dash-section-label">Trade Log</span>
-                <button type="button" className="api-keys-btn" onClick={() => {
-                  setShowAutoLog((v) => !v);
-                  if (!showAutoLog) api.autoTradeLog().then(setAutoLog).catch(() => {});
-                }}>
-                  {showAutoLog ? "Hide" : `Show (${autoLog.length})`}
-                </button>
-              </div>
-              {showAutoLog && (
-                <div className="auto-trade-log">
+              {/* ── Log tab ── */}
+              {autoTab === "log" && (
+                <div className="at-log">
                   {autoLog.length === 0 ? (
                     <p className="dash-empty">No auto-trades executed yet.</p>
                   ) : (
-                    <table className="auto-trade-table">
-                      <thead>
-                        <tr>
-                          <th>Time</th>
-                          <th>Symbol</th>
-                          <th>Action</th>
-                          <th>Side</th>
-                          <th>Qty</th>
-                          <th>Conf</th>
-                          <th>Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {autoLog.map((l) => (
-                          <tr key={l.id} className={l.status === "error" ? "auto-trade-row--error" : ""}>
-                            <td>{new Date(l.created_at).toLocaleTimeString()}</td>
-                            <td>{l.symbol}</td>
-                            <td>{l.action}</td>
-                            <td className={l.side === "Buy" ? "val-up" : "val-down"}>{l.side}</td>
-                            <td>{l.qty}</td>
-                            <td>{(l.confidence * 100).toFixed(0)}%</td>
-                            <td>{l.status === "error" ? `❌ ${l.error?.slice(0, 40)}` : "✓"}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                    <div className="at-log-list">
+                      {autoLog.map((l) => (
+                        <div key={l.id} className={`at-log-row ${l.status === "error" ? "at-log-row--error" : l.action === "CLOSE" ? "at-log-row--close" : "at-log-row--open"}`}>
+                          <div className="at-log-row__left">
+                            <span className="at-log-row__action">{l.action}</span>
+                            <span className={`at-log-row__side ${l.side === "Buy" ? "val-up" : "val-down"}`}>{l.side}</span>
+                            <span className="at-log-row__symbol">{l.symbol}</span>
+                          </div>
+                          <div className="at-log-row__right">
+                            <span className="at-log-row__conf">{(l.confidence * 100).toFixed(0)}%</span>
+                            <span className="at-log-row__qty">qty {l.qty}</span>
+                            <span className="at-log-row__status">
+                              {l.status === "error"
+                                ? <span className="val-down" title={l.error}>✗ {l.error?.slice(0,35)}{l.error?.length > 35 ? "…" : ""}</span>
+                                : <span style={{color:"var(--muted)"}}>✓</span>}
+                            </span>
+                            <span className="at-log-row__time">{new Date(l.created_at).toLocaleString([], {month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
               )}
