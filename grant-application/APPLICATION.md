@@ -50,6 +50,21 @@
 **Personal GitHub Profile**
 > github.com/astraios-dev
 
+**Where have you worked or built before?**
+> Data Science Trainee at AlmaBetter (Jan 2026–present), building production ML pipelines and deploying neural network architectures. Prior projects include FedEx logistics EDA (3.6M transactions), relational database design (15-entity Zomato schema), and Tableau dashboard pipelines. B.Tech in Electronics & Instrumentation Engineering from OUTR (CGPA 7.74). Astraios is my first independent product — built end-to-end using Claude Code as the primary agentic engineering tool.
+
+**Why are you the right person to build this?**
+> ML and data science background with hands-on experience in PyTorch, FastAPI, PostgreSQL, and end-to-end model deployment — the exact stack powering Astraios. My EIE degree gave me a strong signals and systems foundation that directly applies to time-series ML. Currently deepening LLM and production ML knowledge at AlmaBetter. Astraios is the convergence of everything I've been training toward.
+
+**What are you building, and who is it for?**
+> Astraios is a quantitative trading platform for retail crypto traders who want institutional-grade signal generation and autonomous execution without the complexity of building it themselves. The platform runs a multi-timeframe CNN-Transformer that predicts price direction across 27 perpetual pairs at 68% accuracy, then automatically executes trades on Bybit and Drift Protocol every 15 minutes — no manual intervention required.
+
+**Why did you decide to build this, and why now?**
+> Crypto derivatives markets are the most liquid, 24/7 tradeable assets in the world — but the tools available to retail traders are years behind what institutional desks use. Quant funds run transformer models, multi-timeframe ensembles, and automated execution. Retail traders get RSI and manual entry. The gap is real and the technology to close it now exists. The timing is right because Solana's DeFi infrastructure finally has the speed and liquidity for on-chain perps to be viable for algo trading.
+
+**What technologies are you using?**
+> PyTorch CNN-Transformer on SageMaker, FastAPI + PostgreSQL backend, Bybit v5 API for CEX execution, driftpy + Drift Protocol for Solana on-chain perps, React 19 frontend, built end-to-end with Claude Code.
+
 **Colosseum Crowdedness Score**
 > 323 — cluster "Solana DEX and Trading Infrastructure" (323 projects, 23 winners). Highest similarity to existing projects is 0.053 (Butter Trade). No existing project combines a trained Transformer model with Drift Protocol auto-trading.
 
